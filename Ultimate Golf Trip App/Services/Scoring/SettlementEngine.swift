@@ -115,8 +115,32 @@ struct SettlementEngine {
         for bet in trip.completedSideBets {
             guard let winnerId = bet.winnerId else { continue }
 
-            if let dollarAmount = parseBetStake(bet.stake), dollarAmount > 0 {
-                // Monetary bet
+            if bet.isPotBet && bet.potAmount > 0 {
+                // Pot bet: each participant puts up potAmount, winner takes the pot
+                let balances = calculatePotBetBalances(bet: bet)
+                let playerAmounts: [(playerId: UUID, playerName: String, amount: Double)] = balances.compactMap { (playerId, amount) in
+                    guard let player = trip.player(withId: playerId) else { return nil }
+                    return (playerId: playerId, playerName: player.name, amount: amount)
+                }.sorted { $0.amount > $1.amount }
+
+                if !playerAmounts.isEmpty {
+                    gameBreakdowns.append(GameBreakdown(
+                        gameId: bet.id,
+                        gameName: bet.name,
+                        gameType: "Side Bet (Pot)",
+                        isMonetary: true,
+                        stakeText: bet.potDisplayText,
+                        winnerId: winnerId,
+                        winnerName: trip.player(withId: winnerId)?.name,
+                        playerAmounts: playerAmounts
+                    ))
+                }
+
+                for (playerId, amount) in balances {
+                    aggregatedBalances[playerId, default: 0] += amount
+                }
+            } else if let dollarAmount = parseBetStake(bet.stake), dollarAmount > 0 {
+                // Monetary bet (flat stake)
                 let balances = calculateSideBetBalances(bet: bet, dollarAmount: dollarAmount)
                 let playerAmounts: [(playerId: UUID, playerName: String, amount: Double)] = balances.compactMap { (playerId, amount) in
                     guard let player = trip.player(withId: playerId) else { return nil }
@@ -237,6 +261,27 @@ struct SettlementEngine {
 
         // Winner collects from all losers
         balances[winnerId, default: 0] += dollarAmount * Double(losers.count)
+
+        return balances
+    }
+
+    // MARK: - Pot Bet Balances
+
+    /// Calculate per-player balances for a pot-mode side bet.
+    /// Each loser loses their buy-in; winner gains everyone else's buy-in.
+    static func calculatePotBetBalances(bet: SideBet) -> [UUID: Double] {
+        guard let winnerId = bet.winnerId, bet.isPotBet, bet.potAmount > 0 else { return [:] }
+
+        var balances: [UUID: Double] = [:]
+        let losers = bet.participants.filter { $0 != winnerId }
+
+        // Each loser loses their buy-in
+        for loserId in losers {
+            balances[loserId, default: 0] -= bet.potAmount
+        }
+
+        // Winner gains everyone else's buy-in (net = totalPot - their own stake)
+        balances[winnerId, default: 0] += bet.potAmount * Double(losers.count)
 
         return balances
     }

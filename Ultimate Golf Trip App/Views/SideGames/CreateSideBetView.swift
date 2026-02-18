@@ -89,7 +89,37 @@ struct CreateSideBetView: View {
                 }
 
                 Section("Stakes") {
-                    TextField("e.g. $20 or buys dinner", text: $viewModel.newBetStake)
+                    Toggle("Pot Mode", isOn: $viewModel.newBetIsPot)
+
+                    if viewModel.newBetIsPot {
+                        HStack {
+                            Text("Buy-in per player")
+                            Spacer()
+                            HStack(spacing: 2) {
+                                Text("$")
+                                    .foregroundStyle(.secondary)
+                                TextField("10", text: $viewModel.newBetPotAmount)
+                                    .keyboardType(.decimalPad)
+                                    .multilineTextAlignment(.trailing)
+                                    .frame(width: 60)
+                            }
+                        }
+
+                        if let potValue = Double(viewModel.newBetPotAmount),
+                           potValue > 0,
+                           viewModel.newBetParticipants.count >= 2 {
+                            let total = potValue * Double(viewModel.newBetParticipants.count)
+                            HStack {
+                                Image(systemName: "dollarsign.circle.fill")
+                                    .foregroundStyle(Theme.primary)
+                                Text("\(viewModel.newBetParticipants.count) players × $\(String(format: "%.0f", potValue)) = **$\(String(format: "%.0f", total)) pot**")
+                                    .font(.subheadline)
+                            }
+                            .padding(.vertical, 4)
+                        }
+                    } else {
+                        TextField("e.g. $20 or buys dinner", text: $viewModel.newBetStake)
+                    }
                 }
             }
             .navigationTitle("Create Side Bet")

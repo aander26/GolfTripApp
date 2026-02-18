@@ -3,6 +3,7 @@ import SwiftUI
 struct SideBetCardView: View {
     let bet: SideBet
     @Bindable var viewModel: MetricsViewModel
+    @State private var showingWinnerPicker = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -12,13 +13,35 @@ struct SideBetCardView: View {
                     .foregroundStyle(Theme.primary)
                 Text(bet.name)
                     .font(.headline)
+
+                if bet.isPotBet {
+                    Text("POT")
+                        .font(.caption2)
+                        .fontWeight(.bold)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Theme.primary)
+                        .foregroundStyle(.white)
+                        .clipShape(Capsule())
+                }
+
                 Spacer()
-                Text(bet.stake)
-                    .font(.caption.bold())
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Theme.primaryLight)
-                    .clipShape(Capsule())
+
+                if bet.isPotBet && bet.potAmount > 0 {
+                    Text("$\(String(format: "%.0f", bet.totalPot))")
+                        .font(.caption.bold())
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Theme.primaryLight)
+                        .clipShape(Capsule())
+                } else {
+                    Text(bet.stake)
+                        .font(.caption.bold())
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Theme.primaryLight)
+                        .clipShape(Capsule())
+                }
             }
 
             // Metric info
@@ -36,6 +59,11 @@ struct SideBetCardView: View {
                     .foregroundStyle(.secondary)
                 if let target = bet.formattedTarget {
                     Text("· Target: \(target)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if bet.isPotBet && bet.potAmount > 0 {
+                    Text("· $\(String(format: "%.0f", bet.potAmount))/player")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -97,10 +125,16 @@ struct SideBetCardView: View {
                 if bet.isActive {
                     Menu {
                         Button {
+                            showingWinnerPicker = true
+                        } label: {
+                            Label("Declare Winner", systemImage: "trophy")
+                        }
+                        Button {
                             viewModel.completeBet(bet.id)
                         } label: {
-                            Label("Settle Bet", systemImage: "checkmark.circle")
+                            Label("Auto-Settle from Stats", systemImage: "chart.bar")
                         }
+                        Divider()
                         Button(role: .destructive) {
                             viewModel.deleteBet(bet.id)
                         } label: {
@@ -115,6 +149,9 @@ struct SideBetCardView: View {
             }
         }
         .padding(.vertical, 4)
+        .sheet(isPresented: $showingWinnerPicker) {
+            BetWinnerPickerSheet(bet: bet, viewModel: viewModel)
+        }
     }
 
     private struct ParticipantStanding {
@@ -141,6 +178,108 @@ struct SideBetCardView: View {
         .sorted { a, b in
             metric.higherIsBetter ? a.value > b.value : a.value < b.value
         }
+    }
+}
+
+// MARK: - Winner Picker Sheet
+
+struct BetWinnerPickerSheet: View {
+    let bet: SideBet
+    @Bindable var viewModel: MetricsViewModel
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedWinnerId: UUID?
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                // Bet info header
+                VStack(spacing: 6) {
+                    Text(bet.name)
+                        .font(.title3.bold())
+
+                    if bet.isPotBet && bet.potAmount > 0 {
+                        Text(bet.potDisplayText)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("Stakes: \(bet.stake)")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding()
+
+                Divider()
+
+                // Player list
+                List {
+                    Section("Select the Winner") {
+                        ForEach(viewModel.betParticipants(for: bet)) { player in
+                            Button {
+                                selectedWinnerId = player.id
+                            } label: {
+                                HStack {
+                                    Text(player.initials)
+                                        .font(.system(size: 12, weight: .bold))
+                                        .foregroundStyle(.white)
+                                        .frame(width: 34, height: 34)
+                                        .background(player.avatarColor.color)
+                                        .clipShape(Circle())
+
+                                    Text(player.name)
+                                        .foregroundStyle(.primary)
+
+                                    Spacer()
+
+                                    if selectedWinnerId == player.id {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundStyle(Theme.primary)
+                                            .font(.title3)
+                                    } else {
+                                        Image(systemName: "circle")
+                                            .foregroundStyle(.secondary)
+                                            .font(.title3)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Show what winning means for pot bets
+                    if bet.isPotBet && bet.potAmount > 0 {
+                        Section {
+                            HStack {
+                                Image(systemName: "info.circle")
+                                    .foregroundStyle(.secondary)
+                                Text("Winner takes the $\(String(format: "%.0f", bet.totalPot)) pot. This will appear in Settle Up.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Declare Winner")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Confirm") {
+                        if let winnerId = selectedWinnerId {
+                            viewModel.completeBetWithWinner(betId: bet.id, winnerId: winnerId)
+                        }
+                        dismiss()
+                    }
+                    .disabled(selectedWinnerId == nil)
+                    .fontWeight(.semibold)
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 }
 

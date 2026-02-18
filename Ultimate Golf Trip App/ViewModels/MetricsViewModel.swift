@@ -34,6 +34,8 @@ class MetricsViewModel {
     var newBetTargetValue: String = ""
     var newBetParticipants: Set<UUID> = []
     var newBetStake: String = ""
+    var newBetIsPot: Bool = false
+    var newBetPotAmount: String = ""
 
     init(appState: AppState) {
         self.appState = appState
@@ -183,25 +185,45 @@ class MetricsViewModel {
 
         let metric = trip.metric(withId: metricId)
         let target = Double(newBetTargetValue)
+        let potAmountValue = Double(newBetPotAmount) ?? 0
+
+        // For pot bets, auto-generate the stake label from the pot amount
+        let stakeText: String
+        if newBetIsPot && potAmountValue > 0 {
+            let total = potAmountValue * Double(newBetParticipants.count)
+            stakeText = "$\(String(format: "%.0f", total)) pot"
+        } else {
+            stakeText = newBetStake.isEmpty ? "Bragging Rights" : newBetStake
+        }
+
         let bet = SideBet(
             name: newBetName,
             metric: metric,
             betType: newBetType,
             targetValue: target,
             participants: Array(newBetParticipants),
-            stake: newBetStake.isEmpty ? "Bragging Rights" : newBetStake
+            stake: stakeText,
+            isPotBet: newBetIsPot,
+            potAmount: potAmountValue
         )
         trip.addSideBet(bet)
         appState.saveContext()
         resetBetForm()
     }
 
+    /// Auto-settle: determine the winner from metric data and complete the bet.
     func completeBet(_ betId: UUID) {
         guard let trip = currentTrip,
               let bet = trip.sideBet(withId: betId) else { return }
 
-        // Auto-determine winner based on bet type and metric data
         let winnerId = determineWinner(for: bet)
+        trip.completeSideBet(id: betId, winnerId: winnerId)
+        appState.saveContext()
+    }
+
+    /// Manually declare a winner and complete the bet.
+    func completeBetWithWinner(betId: UUID, winnerId: UUID) {
+        guard let trip = currentTrip else { return }
         trip.completeSideBet(id: betId, winnerId: winnerId)
         appState.saveContext()
     }
@@ -210,6 +232,12 @@ class MetricsViewModel {
         guard let trip = currentTrip else { return }
         trip.removeSideBet(id: betId)
         appState.saveContext()
+    }
+
+    /// Get participant players for a bet (used by the winner picker sheet).
+    func betParticipants(for bet: SideBet) -> [Player] {
+        guard let trip = currentTrip else { return [] }
+        return bet.participants.compactMap { trip.player(withId: $0) }
     }
 
     private func determineWinner(for bet: SideBet) -> UUID? {
@@ -260,6 +288,8 @@ class MetricsViewModel {
         newBetTargetValue = ""
         newBetParticipants = []
         newBetStake = ""
+        newBetIsPot = false
+        newBetPotAmount = ""
         showingCreateBet = false
     }
 }
