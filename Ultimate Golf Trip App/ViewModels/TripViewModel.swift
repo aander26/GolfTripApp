@@ -22,6 +22,10 @@ class TripViewModel {
     var newCourseState: String = ""
     var newCourseSlopeRating: String = "113"
     var newCourseCourseRating: String = "72.0"
+    var newCourseLatitude: Double?
+    var newCourseLongitude: Double?
+    /// Matched course data from bundled database (set by search service)
+    var matchedCourseData: CourseData?
 
     // Team creation
     var newTeamName: String = ""
@@ -175,13 +179,31 @@ class TripViewModel {
 
     func addCourse() {
         guard !newCourseName.isEmpty, let trip = currentTrip else { return }
+
+        // Use matched course data for holes if available, otherwise defaults
+        let holes: [Hole]
+        if let data = matchedCourseData {
+            holes = data.holes.map { holeData in
+                Hole(
+                    number: holeData.number,
+                    par: holeData.par,
+                    yardage: holeData.yardage,
+                    handicapRating: holeData.handicapRating
+                )
+            }
+        } else {
+            holes = Course.defaultEighteenHoles()
+        }
+
         let course = Course(
             name: newCourseName,
-            holes: Course.defaultEighteenHoles(),
+            holes: holes,
             slopeRating: Double(newCourseSlopeRating) ?? 113,
             courseRating: Double(newCourseCourseRating) ?? 72.0,
             city: newCourseCity,
-            state: newCourseState
+            state: newCourseState,
+            latitude: newCourseLatitude,
+            longitude: newCourseLongitude
         )
         course.trip = trip
         trip.courses.append(course)
@@ -265,6 +287,9 @@ class TripViewModel {
         newCourseState = ""
         newCourseSlopeRating = "113"
         newCourseCourseRating = "72.0"
+        newCourseLatitude = nil
+        newCourseLongitude = nil
+        matchedCourseData = nil
         showingAddCourse = false
     }
 

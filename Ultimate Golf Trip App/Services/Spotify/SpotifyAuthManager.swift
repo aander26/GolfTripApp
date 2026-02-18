@@ -19,8 +19,13 @@ class SpotifyAuthManager {
     // ASSUMPTION: These values come from your Spotify Developer Dashboard.
     // The client secret is NEVER stored in the app — it lives on the backend.
 
-    /// Your Spotify app's Client ID from the developer dashboard
-    private let clientId = "f643c4928844412185597ac72ed16b10"
+    /// Your Spotify app's Client ID — loaded from Info.plist (key: SpotifyClientID)
+    private let clientId: String = {
+        guard let id = Bundle.main.object(forInfoDictionaryKey: "SpotifyClientID") as? String, !id.isEmpty else {
+            fatalError("SpotifyClientID not found in Info.plist. Add it under the key 'SpotifyClientID'.")
+        }
+        return id
+    }()
 
     /// The redirect URI registered in your Spotify app settings.
     /// Must use a custom URL scheme that your app handles.

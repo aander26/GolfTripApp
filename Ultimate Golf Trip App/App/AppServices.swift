@@ -2,6 +2,9 @@ import Foundation
 import SwiftUI
 import SwiftData
 import CloudKit
+import os.log
+
+private let logger = Logger(subsystem: "com.alex-apps.golftrip", category: "AppState")
 
 @Observable
 class AppState {
@@ -140,7 +143,7 @@ class AppState {
             iCloudAvailable = (status == .available)
         } catch {
             iCloudAvailable = false
-            print("☁️ CloudKit unavailable: \(error.localizedDescription)")
+            logger.warning("CloudKit unavailable: \(error.localizedDescription)")
         }
     }
 
@@ -162,7 +165,7 @@ class AppState {
         do {
             try await CloudKitService.shared.pushFullTrip(trip)
         } catch {
-            print("☁️ CloudKit push failed: \(error.localizedDescription)")
+            logger.error("CloudKit push failed: \(error.localizedDescription)")
             // Sync failures are silent — don't set errorMessage
         }
     }
@@ -175,7 +178,7 @@ class AppState {
                 try await CloudKitService.shared.pushFullTrip(trip)
             }
         } catch {
-            print("☁️ CloudKit sync failed: \(error.localizedDescription)")
+            logger.error("CloudKit sync failed: \(error.localizedDescription)")
         }
     }
 }

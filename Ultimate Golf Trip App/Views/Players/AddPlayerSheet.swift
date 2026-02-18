@@ -1,4 +1,5 @@
 import SwiftUI
+import MapKit
 
 struct AddPlayerSheet: View {
     @Bindable var viewModel: TripViewModel
@@ -129,12 +130,100 @@ struct AddTeamSheet: View {
 struct AddCourseSheet: View {
     @Bindable var viewModel: TripViewModel
     @Environment(\.dismiss) private var dismiss
-    @State private var showingHoleSetup = false
-    @State private var tempCourse: Course?
+    @State private var searchService = GolfCourseSearchService()
+    @State private var showingSuggestions = false
 
     var body: some View {
         NavigationStack {
             Form {
+                // Search Section
+                Section("Search for a Course") {
+                    HStack {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(.secondary)
+                        TextField("Type course name...", text: $searchService.searchText)
+                            .textInputAutocapitalization(.words)
+                            .autocorrectionDisabled()
+                            .onChange(of: searchService.searchText) {
+                                showingSuggestions = !searchService.suggestions.isEmpty
+                            }
+                    }
+
+                    if searchService.isSearching {
+                        HStack {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                            Text("Looking up course...")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+
+                // Suggestions
+                if showingSuggestions && !searchService.suggestions.isEmpty {
+                    Section("Suggestions") {
+                        ForEach(searchService.suggestions, id: \.hashValue) { completion in
+                            Button {
+                                Task {
+                                    await searchService.selectSuggestion(completion)
+                                    applySearchResult()
+                                    showingSuggestions = false
+                                }
+                            } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(completion.title)
+                                        .font(.body)
+                                        .foregroundStyle(.primary)
+                                    if !completion.subtitle.isEmpty {
+                                        Text(completion.subtitle)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Auto-fill Status
+                if let result = searchService.selectedResult {
+                    Section {
+                        if result.hasDetailedData {
+                            Label {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Full course data found!")
+                                        .font(.subheadline)
+                                        .fontWeight(.medium)
+                                    if let data = result.courseData {
+                                        Text("Par \(data.totalPar) \u{00B7} \(data.totalYardage) yards \u{00B7} 18 holes")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            } icon: {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                            }
+                        } else {
+                            Label {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Location found")
+                                        .font(.subheadline)
+                                        .fontWeight(.medium)
+                                    Text("Hole details will use defaults \u{2014} customize after adding")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            } icon: {
+                                Image(systemName: "location.circle.fill")
+                                    .foregroundStyle(.blue)
+                            }
+                        }
+                    }
+                }
+
+                // Course Info (editable, auto-filled from search)
                 Section("Course Info") {
                     TextField("Course Name", text: $viewModel.newCourseName)
                         .textInputAutocapitalization(.words)
@@ -166,10 +255,12 @@ struct AddCourseSheet: View {
                     }
                 }
 
-                Section {
-                    Text("You can customize individual hole par, yardage, and handicap ratings after adding the course.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                if searchService.selectedResult == nil {
+                    Section {
+                        Text("Tip: Search above to auto-fill course data, or enter details manually.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             .navigationTitle("Add Course")
@@ -187,6 +278,25 @@ struct AddCourseSheet: View {
                     .fontWeight(.semibold)
                 }
             }
+        }
+    }
+
+    /// Apply search result to the view model's form fields.
+    private func applySearchResult() {
+        guard let result = searchService.selectedResult else { return }
+
+        viewModel.newCourseName = result.name
+        viewModel.newCourseCity = result.city
+        viewModel.newCourseState = result.state
+        viewModel.newCourseLatitude = result.latitude
+        viewModel.newCourseLongitude = result.longitude
+
+        if let data = result.courseData {
+            viewModel.newCourseSlopeRating = String(format: "%.0f", data.slopeRating)
+            viewModel.newCourseCourseRating = String(format: "%.1f", data.courseRating)
+            viewModel.matchedCourseData = data
+        } else {
+            viewModel.matchedCourseData = nil
         }
     }
 }

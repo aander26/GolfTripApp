@@ -12,6 +12,12 @@ final class SideGame {
     var isActive: Bool
     var designatedHoles: [Int]
 
+    /// When true, stakes represents a per-player buy-in and the winner takes the full pot.
+    var isPotGame: Bool
+
+    /// The winner of a pot game (set when the pot is resolved).
+    var potWinnerId: UUID?
+
     // Relationships
     var round: Round?
     var trip: Trip?
@@ -25,7 +31,9 @@ final class SideGame {
         stakesLabel: String = "",
         results: [SideGameResult] = [],
         isActive: Bool = true,
-        designatedHoles: [Int] = []
+        designatedHoles: [Int] = [],
+        isPotGame: Bool = false,
+        potWinnerId: UUID? = nil
     ) {
         self.id = id
         self.typeRaw = type.rawValue
@@ -36,6 +44,8 @@ final class SideGame {
         self.results = results
         self.isActive = isActive
         self.designatedHoles = designatedHoles
+        self.isPotGame = isPotGame
+        self.potWinnerId = potWinnerId
     }
 
     // MARK: - Computed Properties
@@ -49,6 +59,25 @@ final class SideGame {
     var roundId: UUID? { round?.id }
 
     var hasResults: Bool { !results.isEmpty }
+
+    // MARK: - Pot Game Properties
+
+    /// Total pot amount: buy-in per player x number of players
+    var totalPot: Double {
+        stakes * Double(participantIds.count)
+    }
+
+    /// Display text for pot games: "4 x $10 = $40 pot"
+    var potDisplayText: String {
+        let perPlayer = String(format: "%.0f", stakes)
+        let total = String(format: "%.0f", totalPot)
+        return "\(participantIds.count) x $\(perPlayer) = $\(total) pot"
+    }
+
+    /// Whether the pot game has been resolved with a winner
+    var isPotResolved: Bool {
+        isPotGame && potWinnerId != nil
+    }
 
     func resultsForHole(_ holeNumber: Int) -> [SideGameResult] {
         results.filter { $0.holeNumber == holeNumber }

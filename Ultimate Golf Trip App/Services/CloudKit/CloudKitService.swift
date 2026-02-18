@@ -12,7 +12,7 @@ actor CloudKitService {
         if _container == nil {
             _container = CKContainer.default()
         }
-        return _container!
+        return _container ?? CKContainer.default()
     }
     private var privateDB: CKDatabase { container.privateCloudDatabase }
     private var sharedDB: CKDatabase { container.sharedCloudDatabase }

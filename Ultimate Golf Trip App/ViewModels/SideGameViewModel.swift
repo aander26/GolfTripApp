@@ -9,6 +9,7 @@ class SideGameViewModel {
     var selectedParticipantIds: Set<UUID> = []
     var stakesAmount: String = ""
     var designatedHoles: Set<Int> = []
+    var isPotGame: Bool = false
     var showingCreateGame = false
 
     init(appState: AppState) {
@@ -39,7 +40,8 @@ class SideGameViewModel {
             round: round,
             participantIds: Array(selectedParticipantIds),
             stakes: stakes,
-            designatedHoles: Array(designatedHoles).sorted()
+            designatedHoles: Array(designatedHoles).sorted(),
+            isPotGame: isPotGame
         )
         game.trip = trip
         trip.sideGames.append(game)
@@ -99,6 +101,29 @@ class SideGameViewModel {
         appState.saveContext()
     }
 
+    // MARK: - Pot Game Resolution
+
+    /// Resolve a pot game by selecting the winner. The winner takes the full pot.
+    func resolvePotWinner(gameId: UUID, winnerId: UUID) {
+        guard let trip = currentTrip,
+              let game = trip.sideGames.first(where: { $0.id == gameId }),
+              game.isPotGame else { return }
+
+        game.potWinnerId = winnerId
+
+        // Create a single result representing the pot win
+        let winnerName = trip.player(withId: winnerId)?.name ?? "Winner"
+        let result = SideGameResult(
+            holeNumber: 0,
+            winnerId: winnerId,
+            amount: game.totalPot,
+            description: "\(winnerName) wins the $\(String(format: "%.0f", game.totalPot)) pot"
+        )
+        game.results = [result]
+        game.isActive = false
+        appState.saveContext()
+    }
+
     // MARK: - Manual Result Entry
 
     func addManualResult(gameId: UUID, holeNumber: Int, winnerId: UUID, description: String) {
@@ -151,6 +176,7 @@ class SideGameViewModel {
         selectedParticipantIds = []
         stakesAmount = ""
         designatedHoles = []
+        isPotGame = false
         showingCreateGame = false
     }
 }

@@ -36,10 +36,34 @@ struct CreateSideGameView: View {
 
                 // Stakes
                 Section("Stakes") {
+                    Toggle("Pot Mode", isOn: $viewModel.isPotGame)
+
                     HStack {
                         Text("$")
-                        TextField("Amount per unit", text: $viewModel.stakesAmount)
-                            .keyboardType(.decimalPad)
+                        TextField(
+                            viewModel.isPotGame ? "Buy-in per player" : "Amount per unit",
+                            text: $viewModel.stakesAmount
+                        )
+                        .keyboardType(.decimalPad)
+                    }
+
+                    if viewModel.isPotGame {
+                        let stakes = Double(viewModel.stakesAmount) ?? 0
+                        let playerCount = viewModel.selectedParticipantIds.count
+                        if stakes > 0 && playerCount > 0 {
+                            let total = stakes * Double(playerCount)
+                            HStack {
+                                Image(systemName: "banknote")
+                                    .foregroundStyle(Theme.primary)
+                                Text("\(playerCount) players x $\(String(format: "%.0f", stakes)) = **$\(String(format: "%.0f", total)) pot**")
+                                    .font(.subheadline)
+                            }
+                            .listRowBackground(Theme.primaryLight.opacity(0.3))
+                        } else {
+                            Text("Select players and enter a buy-in to see the pot total")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 

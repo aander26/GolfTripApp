@@ -14,6 +14,7 @@ struct SideGamesView: View {
                     Text("On-Course").tag(1)
                     Text("Off-Course").tag(2)
                     Text("Bets").tag(3)
+                    Text("Settle Up").tag(4)
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal)
@@ -35,6 +36,8 @@ struct SideGamesView: View {
                     )
                 case 3:
                     sideBetsContent
+                case 4:
+                    SettlementView(trip: viewModel.currentTrip)
                 default:
                     classicSideGamesContent
                 }
@@ -42,6 +45,7 @@ struct SideGamesView: View {
             .navigationTitle("Side Games")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
+                    if selectedSection < 4 {
                     Menu {
                         switch selectedSection {
                         case 0:
@@ -87,6 +91,7 @@ struct SideGamesView: View {
                         }
                     } label: {
                         Image(systemName: "plus")
+                    }
                     }
                 }
             }
@@ -247,10 +252,30 @@ struct SideGameRowView: View {
             HStack {
                 Text(game.type.rawValue)
                     .font(.headline)
+
+                if game.isPotGame {
+                    Text("POT")
+                        .font(.caption2)
+                        .fontWeight(.bold)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Theme.primary)
+                        .foregroundStyle(.white)
+                        .clipShape(Capsule())
+                }
+
                 Spacer()
-                Text(game.stakesLabel)
-                    .font(.subheadline)
-                    .foregroundStyle(Theme.primary)
+
+                if game.isPotGame {
+                    Text("$\(String(format: "%.0f", game.totalPot))")
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(Theme.primary)
+                } else {
+                    Text(game.stakesLabel)
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.primary)
+                }
             }
 
             HStack {
@@ -258,10 +283,29 @@ struct SideGameRowView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
+                if game.isPotGame {
+                    Text("$\(String(format: "%.0f", game.stakes))/player")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 if game.hasResults {
                     Text("\(game.results.count) results")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+
+                if game.isPotResolved, let winnerId = game.potWinnerId,
+                   let player = trip?.player(withId: winnerId) {
+                    Spacer()
+                    HStack(spacing: 2) {
+                        Image(systemName: "trophy.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.yellow)
+                        Text(player.name)
+                            .font(.caption)
+                            .fontWeight(.medium)
+                    }
                 }
             }
         }
