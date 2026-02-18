@@ -26,13 +26,8 @@ actor SpotifyService {
     private let decoder: JSONDecoder
 
     private init() {
-        // ASSUMPTION: Backend API base URL — replace with your actual backend URL.
-        // In production this would come from a config or environment variable.
-        #if DEBUG
-        self.baseURL = "http://localhost:3000/api"
-        #else
-        self.baseURL = "https://your-heroku-app.herokuapp.com/api"  // Replace with Heroku URL after deploy
-        #endif
+        // Railway-deployed Spotify proxy backend
+        self.baseURL = "https://web-production-e1033.up.railway.app/api"
 
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 15
