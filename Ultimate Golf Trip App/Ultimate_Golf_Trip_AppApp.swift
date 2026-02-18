@@ -1,17 +1,54 @@
-//
-//  Ultimate_Golf_Trip_AppApp.swift
-//  Ultimate Golf Trip App
-//
-//  Created by Alex Anderson on 2/16/26.
-//
-
 import SwiftUI
+import SwiftData
 
 @main
 struct Ultimate_Golf_Trip_AppApp: App {
+    @State private var appState = AppState()
+    @Environment(\.scenePhase) private var scenePhase
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            AppBootstrapView()
+                .environment(appState)
+                .preferredColorScheme(.light)
         }
+        .modelContainer(for: [Trip.self, UserProfile.self])
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                Task {
+                    await appState.checkiCloudStatus()
+                    if appState.iCloudAvailable {
+                        await appState.syncWithCloud()
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Injects the SwiftData ModelContext into AppState on first appear,
+/// then displays the main ContentView.
+struct AppBootstrapView: View {
+    @Environment(AppState.self) private var appState
+    @Environment(\.modelContext) private var modelContext
+
+    var body: some View {
+        ContentView()
+            .onAppear {
+                if appState.modelContext == nil {
+                    appState.modelContext = modelContext
+                    UserDefaultsMigrator.migrateIfNeeded(context: modelContext)
+                    appState.loadTrips()
+                    appState.loadUserProfile()
+
+                    // Check iCloud availability and do initial sync
+                    Task {
+                        await appState.checkiCloudStatus()
+                        if appState.iCloudAvailable {
+                            await appState.syncWithCloud()
+                        }
+                    }
+                }
+            }
     }
 }

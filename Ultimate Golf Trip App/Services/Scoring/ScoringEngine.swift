@@ -1,0 +1,183 @@
+import Foundation
+
+/// Value type used by engines to hold processed scoring data without mutating @Model objects
+struct ProcessedScorecard {
+    let playerId: UUID
+    let holeScores: [HoleScore]
+    let courseHandicap: Int
+    let isComplete: Bool
+
+    var totalGross: Int { holeScores.reduce(0) { $0 + $1.strokes } }
+    var totalNet: Int { holeScores.reduce(0) { $0 + $1.netStrokes } }
+    var frontNineNet: Int { holeScores.filter { $0.holeNumber <= 9 }.reduce(0) { $0 + $1.netStrokes } }
+    var backNineNet: Int { holeScores.filter { $0.holeNumber > 9 }.reduce(0) { $0 + $1.netStrokes } }
+    var holesCompleted: Int { holeScores.filter { $0.strokes > 0 }.count }
+
+    func score(forHole number: Int) -> HoleScore? {
+        holeScores.first { $0.holeNumber == number }
+    }
+
+    init(from scorecard: Scorecard, processedScores: [HoleScore]? = nil) {
+        self.playerId = scorecard.player?.id ?? UUID()
+        self.holeScores = processedScores ?? scorecard.holeScores
+        self.courseHandicap = scorecard.courseHandicap
+        self.isComplete = scorecard.isComplete
+    }
+}
+
+struct ProcessedRound {
+    let scorecards: [ProcessedScorecard]
+}
+
+struct ScoringEngine {
+
+    // MARK: - Stroke Play
+
+    /// Calculate stroke play results with handicap adjustment — returns a value-type snapshot
+    static func calculateStrokePlay(
+        scorecard: Scorecard,
+        holes: [Hole]
+    ) -> ProcessedScorecard {
+        let strokeMap = HandicapEngine.distributeStrokes(
+            courseHandicap: scorecard.courseHandicap,
+            holes: holes
+        )
+        let processedScores = HandicapEngine.calculateNetScores(
+            holeScores: scorecard.holeScores,
+            strokeMap: strokeMap
+        )
+        return ProcessedScorecard(from: scorecard, processedScores: processedScores)
+    }
+
+    // MARK: - Stableford
+
+    static func stablefordPoints(netScore: Int, par: Int) -> Int {
+        guard netScore > 0 else { return 0 }
+        let diff = netScore - par
+        switch diff {
+        case ...(-3): return 5
+        case -2: return 4
+        case -1: return 3
+        case 0: return 2
+        case 1: return 1
+        default: return 0
+        }
+    }
+
+    static func calculateStablefordTotal(scorecard: Scorecard, holes: [Hole]) -> Int {
+        let adjusted = calculateStrokePlay(scorecard: scorecard, holes: holes)
+        return adjusted.holeScores.reduce(0) { total, score in
+            guard score.isCompleted else { return total }
+            return total + stablefordPoints(netScore: score.netStrokes, par: score.par)
+        }
+    }
+
+    // MARK: - Match Play
+
+    static func calculateMatchPlay(
+        player1Card: Scorecard,
+        player2Card: Scorecard,
+        holes: [Hole]
+    ) -> MatchPlayResult {
+        let adjusted1 = calculateStrokePlay(scorecard: player1Card, holes: holes)
+        let adjusted2 = calculateStrokePlay(scorecard: player2Card, holes: holes)
+
+        var p1Wins = 0
+        var p2Wins = 0
+        var holesPlayed = 0
+
+        for holeNum in 1...18 {
+            guard let score1 = adjusted1.score(forHole: holeNum),
+                  let score2 = adjusted2.score(forHole: holeNum),
+                  score1.isCompleted && score2.isCompleted else { continue }
+
+            holesPlayed += 1
+
+            if score1.netStrokes < score2.netStrokes {
+                p1Wins += 1
+            } else if score2.netStrokes < score1.netStrokes {
+                p2Wins += 1
+            }
+
+            let margin = abs(p1Wins - p2Wins)
+            let remaining = 18 - holesPlayed
+            if margin > remaining { break }
+        }
+
+        let result: String
+        let margin = abs(p1Wins - p2Wins)
+        let remaining = 18 - holesPlayed
+
+        if p1Wins == p2Wins {
+            result = "All Square"
+        } else if margin > remaining {
+            let winner = p1Wins > p2Wins ? "P1" : "P2"
+            result = remaining == 0 ? "\(winner) wins \(margin) UP" : "\(winner) wins \(margin) & \(remaining)"
+        } else {
+            let leader = p1Wins > p2Wins ? "P1" : "P2"
+            result = "\(leader) \(margin) UP thru \(holesPlayed)"
+        }
+
+        return MatchPlayResult(
+            player1Id: adjusted1.playerId,
+            player2Id: adjusted2.playerId,
+            player1Wins: p1Wins,
+            player2Wins: p2Wins,
+            holesPlayed: holesPlayed,
+            result: result
+        )
+    }
+
+    // MARK: - Best Ball
+
+    static func bestBallScore(teamScorecards: [Scorecard], holeNumber: Int) -> Int? {
+        let scores = teamScorecards.compactMap { card -> Int? in
+            guard let score = card.score(forHole: holeNumber), score.isCompleted else { return nil }
+            return score.netStrokes
+        }
+        return scores.min()
+    }
+
+    static func bestBallTotal(teamScorecards: [Scorecard], holes: [Hole]) -> Int {
+        var total = 0
+        for hole in holes {
+            if let best = bestBallScore(teamScorecards: teamScorecards, holeNumber: hole.number) {
+                total += best
+            }
+        }
+        return total
+    }
+
+    // MARK: - Scramble
+
+    static func calculateScramble(
+        teamGrossScores: [Int],
+        teamCourseHandicaps: [Int],
+        holes: [Hole]
+    ) -> (netTotal: Int, grossTotal: Int, teamHandicap: Int) {
+        let teamHandicap = HandicapEngine.scrambleTeamHandicap(courseHandicaps: teamCourseHandicaps)
+        let grossTotal = teamGrossScores.reduce(0, +)
+        let netTotal = grossTotal - teamHandicap
+        return (netTotal: netTotal, grossTotal: grossTotal, teamHandicap: teamHandicap)
+    }
+
+    // MARK: - Score to Par
+
+    static func scoreToPar(scorecard: ProcessedScorecard) -> Int {
+        scorecard.holeScores.filter { $0.isCompleted }.reduce(0) { $0 + $1.scoreToPar }
+    }
+
+    static func netScoreToPar(scorecard: ProcessedScorecard) -> Int {
+        scorecard.holeScores.filter { $0.isCompleted }.reduce(0) { $0 + $1.netScoreToPar }
+    }
+
+    // MARK: - Full Round Processing
+
+    /// Process an entire round — returns value-type ProcessedRound (does not mutate @Model objects)
+    static func processRound(round: Round, course: Course) -> ProcessedRound {
+        let processed = round.scorecards.map { card in
+            calculateStrokePlay(scorecard: card, holes: course.holes)
+        }
+        return ProcessedRound(scorecards: processed)
+    }
+}

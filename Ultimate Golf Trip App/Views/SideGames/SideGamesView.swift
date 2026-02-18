@@ -1,0 +1,278 @@
+import SwiftUI
+
+struct SideGamesView: View {
+    @Bindable var viewModel: SideGameViewModel
+    @Bindable var metricsViewModel: MetricsViewModel
+    @State private var selectedSection = 0
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                // Segmented picker
+                Picker("Section", selection: $selectedSection) {
+                    Text("Games").tag(0)
+                    Text("On-Course").tag(1)
+                    Text("Off-Course").tag(2)
+                    Text("Bets").tag(3)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.top, 8)
+
+                // Content
+                switch selectedSection {
+                case 0:
+                    classicSideGamesContent
+                case 1:
+                    MetricListView(
+                        viewModel: metricsViewModel,
+                        category: .onCourse
+                    )
+                case 2:
+                    MetricListView(
+                        viewModel: metricsViewModel,
+                        category: .offCourse
+                    )
+                case 3:
+                    sideBetsContent
+                default:
+                    classicSideGamesContent
+                }
+            }
+            .navigationTitle("Side Games")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        switch selectedSection {
+                        case 0:
+                            Button {
+                                viewModel.showingCreateGame = true
+                            } label: {
+                                Label("New Side Game", systemImage: "dollarsign.circle")
+                            }
+                        case 1:
+                            Button {
+                                metricsViewModel.newMetricCategory = .onCourse
+                                metricsViewModel.showingAddMetric = true
+                            } label: {
+                                Label("Add Stat", systemImage: "plus.circle")
+                            }
+                            Button {
+                                metricsViewModel.selectedCategory = .onCourse
+                                metricsViewModel.showingPresetPicker = true
+                            } label: {
+                                Label("Add from Presets", systemImage: "list.bullet")
+                            }
+                        case 2:
+                            Button {
+                                metricsViewModel.newMetricCategory = .offCourse
+                                metricsViewModel.showingAddMetric = true
+                            } label: {
+                                Label("Add Stat", systemImage: "plus.circle")
+                            }
+                            Button {
+                                metricsViewModel.selectedCategory = .offCourse
+                                metricsViewModel.showingPresetPicker = true
+                            } label: {
+                                Label("Add from Presets", systemImage: "list.bullet")
+                            }
+                        case 3:
+                            Button {
+                                metricsViewModel.showingCreateBet = true
+                            } label: {
+                                Label("New Side Bet", systemImage: "trophy")
+                            }
+                        default:
+                            EmptyView()
+                        }
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                }
+            }
+            .sheet(isPresented: $viewModel.showingCreateGame) {
+                CreateSideGameView(viewModel: viewModel)
+            }
+            .sheet(isPresented: $metricsViewModel.showingAddMetric) {
+                AddMetricSheet(viewModel: metricsViewModel)
+            }
+            .sheet(isPresented: $metricsViewModel.showingLogEntry) {
+                LogEntrySheet(viewModel: metricsViewModel)
+            }
+            .sheet(isPresented: $metricsViewModel.showingCreateBet) {
+                CreateSideBetView(viewModel: metricsViewModel)
+            }
+            .sheet(isPresented: $metricsViewModel.showingPresetPicker) {
+                PresetPickerSheet(viewModel: metricsViewModel)
+            }
+        }
+    }
+
+    // MARK: - Classic Side Games (original)
+
+    @ViewBuilder
+    private var classicSideGamesContent: some View {
+        if viewModel.activeSideGames.isEmpty && viewModel.completedSideGames.isEmpty {
+            emptySideGames
+        } else {
+            sideGamesList
+        }
+    }
+
+    private var emptySideGames: some View {
+        VStack(spacing: 20) {
+            Spacer()
+
+            Image(systemName: "dollarsign.circle")
+                .font(.system(size: 60))
+                .foregroundStyle(Theme.primary)
+
+            Text("No Side Games")
+                .font(.title2)
+                .fontWeight(.bold)
+
+            Text("Add side games to track skins, nassau, closest to pin, and more.")
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+
+            Button {
+                viewModel.showingCreateGame = true
+            } label: {
+                Label("Add Side Game", systemImage: "plus.circle.fill")
+                    .font(.headline)
+                    .padding(.horizontal, 32)
+                    .padding(.vertical, 14)
+            }
+            .buttonStyle(BoldPrimaryButtonStyle())
+
+            Spacer()
+        }
+    }
+
+    private var sideGamesList: some View {
+        List {
+            if !viewModel.activeSideGames.isEmpty {
+                Section("Active") {
+                    ForEach(viewModel.activeSideGames) { game in
+                        NavigationLink {
+                            SideGameDetailView(viewModel: viewModel, game: game)
+                        } label: {
+                            SideGameRowView(game: game, trip: viewModel.currentTrip)
+                        }
+                    }
+                }
+            }
+
+            if !viewModel.completedSideGames.isEmpty {
+                Section("Completed") {
+                    ForEach(viewModel.completedSideGames) { game in
+                        NavigationLink {
+                            SideGameDetailView(viewModel: viewModel, game: game)
+                        } label: {
+                            SideGameRowView(game: game, trip: viewModel.currentTrip)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Side Bets
+
+    @ViewBuilder
+    private var sideBetsContent: some View {
+        if metricsViewModel.activeBets.isEmpty && metricsViewModel.completedBets.isEmpty {
+            VStack(spacing: 20) {
+                Spacer()
+
+                Image(systemName: "trophy")
+                    .font(.system(size: 60))
+                    .foregroundStyle(Theme.primary)
+
+                Text("No Side Bets")
+                    .font(.title2)
+                    .fontWeight(.bold)
+
+                Text("Create bets on any tracked metric.\nWho has the most birdies? Fewest beers? You decide.")
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
+
+                Button {
+                    metricsViewModel.showingCreateBet = true
+                } label: {
+                    Label("Create Side Bet", systemImage: "plus.circle.fill")
+                        .font(.headline)
+                        .padding(.horizontal, 32)
+                        .padding(.vertical, 14)
+                }
+                .buttonStyle(BoldPrimaryButtonStyle())
+
+                Spacer()
+            }
+        } else {
+            List {
+                if !metricsViewModel.activeBets.isEmpty {
+                    Section("Active Bets") {
+                        ForEach(metricsViewModel.activeBets) { bet in
+                            SideBetCardView(
+                                bet: bet,
+                                viewModel: metricsViewModel
+                            )
+                        }
+                    }
+                }
+                if !metricsViewModel.completedBets.isEmpty {
+                    Section("Settled") {
+                        ForEach(metricsViewModel.completedBets) { bet in
+                            SideBetCardView(
+                                bet: bet,
+                                viewModel: metricsViewModel
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct SideGameRowView: View {
+    let game: SideGame
+    let trip: Trip?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(game.type.rawValue)
+                    .font(.headline)
+                Spacer()
+                Text(game.stakesLabel)
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.primary)
+            }
+
+            HStack {
+                Text("\(game.participantIds.count) players")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if game.hasResults {
+                    Text("\(game.results.count) results")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+#Preview {
+    let appState = SampleData.makeAppState()
+    SideGamesView(
+        viewModel: SideGameViewModel(appState: appState),
+        metricsViewModel: MetricsViewModel(appState: appState)
+    )
+}
