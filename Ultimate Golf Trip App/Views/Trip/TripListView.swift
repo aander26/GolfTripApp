@@ -5,6 +5,8 @@ struct TripListView: View {
     @Environment(AppState.self) private var appState
     @State private var showingCreate = false
     @State private var showingJoin = false
+    @State private var tripToDelete: Trip?
+    @State private var showingDeleteConfirmation = false
 
     var body: some View {
         NavigationStack {
@@ -95,16 +97,41 @@ struct TripListView: View {
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                     if trip.isOwner(appState.currentUser?.id) {
                         Button(role: .destructive) {
-                            viewModel.deleteTrip(trip)
+                            tripToDelete = trip
+                            showingDeleteConfirmation = true
                         } label: {
                             Label("Delete", systemImage: "trash")
                         }
                     } else {
                         Button(role: .destructive) {
-                            viewModel.leaveTrip(trip)
+                            tripToDelete = trip
+                            showingDeleteConfirmation = true
                         } label: {
                             Label("Leave", systemImage: "arrow.right.square")
                         }
+                    }
+                }
+            }
+            .alert("Are you sure?", isPresented: $showingDeleteConfirmation) {
+                Button("Cancel", role: .cancel) {
+                    tripToDelete = nil
+                }
+                Button("Delete", role: .destructive) {
+                    if let trip = tripToDelete {
+                        if trip.isOwner(appState.currentUser?.id) {
+                            viewModel.deleteTrip(trip)
+                        } else {
+                            viewModel.leaveTrip(trip)
+                        }
+                    }
+                    tripToDelete = nil
+                }
+            } message: {
+                if let trip = tripToDelete {
+                    if trip.isOwner(appState.currentUser?.id) {
+                        Text("This will permanently delete \"\(trip.name)\" and all its data.")
+                    } else {
+                        Text("You will be removed from \"\(trip.name)\".")
                     }
                 }
             }

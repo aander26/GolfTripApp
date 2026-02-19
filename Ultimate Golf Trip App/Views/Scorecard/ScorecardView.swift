@@ -44,7 +44,7 @@ struct ScorecardView: View {
                 ForEach(trip.rounds) { round in
                     let courseName = round.course?.name ?? "Unknown"
                     Button {
-                        // Navigate to round summary or continue scoring
+                        viewModel.selectRound(round)
                     } label: {
                         RoundRowView(round: round, courseName: courseName)
                     }

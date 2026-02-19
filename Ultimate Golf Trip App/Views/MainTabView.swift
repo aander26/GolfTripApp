@@ -3,7 +3,17 @@ import SwiftData
 
 struct MainTabView: View {
     @Environment(AppState.self) private var appState
-    @State private var selectedTab = 0
+    @State private var selectedTab: Int = {
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        if let idx = args.firstIndex(of: "-screenshotTab"),
+           idx + 1 < args.count,
+           let tab = Int(args[idx + 1]) {
+            return tab
+        }
+        #endif
+        return 0
+    }()
     @State private var viewModelsInitialized = false
     @State private var tripViewModel: TripViewModel?
     @State private var scorecardViewModel: ScorecardViewModel?

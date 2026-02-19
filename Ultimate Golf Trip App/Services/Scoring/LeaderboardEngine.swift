@@ -38,9 +38,10 @@ struct LeaderboardEngine {
                 }
 
                 // Stableford points
-                if round.format == .stableford {
+                if round.format == .stableford,
+                   let rawScorecard = round.scorecards.first(where: { $0.player?.id == scorecard.playerId }) {
                     entry.stablefordPoints += ScoringEngine.calculateStablefordTotal(
-                        scorecard: round.scorecards.first { $0.player?.id == scorecard.playerId }!,
+                        scorecard: rawScorecard,
                         holes: course.holes
                     )
                 }
@@ -82,12 +83,13 @@ struct LeaderboardEngine {
                 holesCompleted: scorecard.holesCompleted,
                 roundsCompleted: scorecard.isComplete ? 1 : 0,
                 totalRounds: 1,
-                stablefordPoints: round.format == .stableford
-                    ? ScoringEngine.calculateStablefordTotal(
-                        scorecard: round.scorecards.first { $0.player?.id == scorecard.playerId }!,
-                        holes: course.holes
-                    )
-                    : 0
+                stablefordPoints: {
+                    if round.format == .stableford,
+                       let rawScorecard = round.scorecards.first(where: { $0.player?.id == scorecard.playerId }) {
+                        return ScoringEngine.calculateStablefordTotal(scorecard: rawScorecard, holes: course.holes)
+                    }
+                    return 0
+                }()
             )
         }
 

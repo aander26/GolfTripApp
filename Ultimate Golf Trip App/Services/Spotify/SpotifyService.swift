@@ -122,12 +122,11 @@ actor SpotifyService {
         return try decoder.decode(T.self, from: data)
     }
 
-    /// Add user authentication headers.
-    /// ASSUMPTION: Your backend uses a session cookie or bearer token for user identity.
-    /// This is a placeholder — wire up your actual auth mechanism here.
+    /// Add headers for backend requests.
+    /// The backend manages Spotify tokens server-side — no user auth token needed for the proxy.
     private func addAuthHeaders(to request: inout URLRequest) {
-        // Example: request.setValue("Bearer \(userToken)", forHTTPHeaderField: "Authorization")
-        // In a real app, pull from Keychain or a session manager
+        // Backend proxy handles Spotify token management directly.
+        // If multi-user auth is added later, inject a bearer token here.
     }
 
     private func validateResponse(_ response: URLResponse) throws {

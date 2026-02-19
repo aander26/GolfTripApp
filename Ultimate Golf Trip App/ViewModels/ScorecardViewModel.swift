@@ -8,6 +8,7 @@ class ScorecardViewModel {
     var selectedCourseId: UUID?
     var selectedFormat: ScoringFormat = .strokePlay
     var selectedPlayerIds: Set<UUID> = []
+    var selectedRoundId: UUID?
     var currentHole: Int = 1
     var showingRoundSetup = false
 
@@ -23,7 +24,11 @@ class ScorecardViewModel {
     }
 
     var currentRound: Round? {
-        currentTrip?.activeRound ?? currentTrip?.rounds.last { !$0.isComplete }
+        if let selectedId = selectedRoundId,
+           let round = currentTrip?.round(withId: selectedId) {
+            return round
+        }
+        return currentTrip?.activeRound ?? currentTrip?.rounds.last { !$0.isComplete }
     }
 
     // MARK: - Round Setup
@@ -130,6 +135,13 @@ class ScorecardViewModel {
             sc.isComplete = true
         }
         appState.saveContext()
+    }
+
+    // MARK: - Round Selection
+
+    func selectRound(_ round: Round) {
+        selectedRoundId = round.id
+        currentHole = 1
     }
 
     // MARK: - Helpers

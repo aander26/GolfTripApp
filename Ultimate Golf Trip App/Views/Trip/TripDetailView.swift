@@ -215,7 +215,7 @@ struct PlayerRowView: View {
             Spacer()
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(player.name), handicap \(player.formattedHandicap)\(team != nil ? ", team \(team!.name)" : "")")
+        .accessibilityLabel("\(player.name), handicap \(player.formattedHandicap)\(team.map { ", team \($0.name)" } ?? "")")
     }
 }
 

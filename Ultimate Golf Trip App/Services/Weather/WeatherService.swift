@@ -8,7 +8,15 @@ actor WeatherService {
     private let baseURL = "https://api.openweathermap.org/data/2.5"
     private var cache: [String: (data: WeatherData, timestamp: Date)] = [:]
     private let cacheExpiration: TimeInterval = 600 // 10 minutes
+    private let maxCacheSize = 50
     private let apiKeyStorageKey = "WeatherService.apiKey"
+
+    private let session: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 15
+        config.timeoutIntervalForResource = 30
+        return URLSession(configuration: config)
+    }()
 
     private init() {
         // Restore saved API key on launch
@@ -40,7 +48,7 @@ actor WeatherService {
             throw WeatherError.invalidURL
         }
 
-        let (data, response) = try await URLSession.shared.data(from: url)
+        let (data, response) = try await session.data(from: url)
 
         guard let httpResponse = response as? HTTPURLResponse,
               httpResponse.statusCode == 200 else {
@@ -49,6 +57,7 @@ actor WeatherService {
 
         let weather = try parseCurrentWeather(data: data)
         cache[cacheKey] = (data: weather, timestamp: Date())
+        pruneCache()
         return weather
     }
 
@@ -64,7 +73,7 @@ actor WeatherService {
             throw WeatherError.invalidURL
         }
 
-        let (data, response) = try await URLSession.shared.data(from: url)
+        let (data, response) = try await session.data(from: url)
 
         guard let httpResponse = response as? HTTPURLResponse,
               httpResponse.statusCode == 200 else {
@@ -173,6 +182,13 @@ actor WeatherService {
         }
 
         return WeatherForecast(hourly: hourly, daily: daily)
+    }
+
+    private func pruneCache() {
+        if cache.count > maxCacheSize {
+            let sorted = cache.sorted { $0.value.timestamp < $1.value.timestamp }
+            cache = Dictionary(uniqueKeysWithValues: sorted.suffix(maxCacheSize))
+        }
     }
 
     private func mapCondition(id: Int) -> WeatherCondition {

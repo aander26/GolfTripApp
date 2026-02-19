@@ -13,7 +13,7 @@ struct CreateTripView: View {
 
                     DatePicker("Start Date", selection: $viewModel.startDate, displayedComponents: .date)
 
-                    DatePicker("End Date", selection: $viewModel.endDate, displayedComponents: .date)
+                    DatePicker("End Date", selection: $viewModel.endDate, in: viewModel.startDate..., displayedComponents: .date)
                 }
 
                 Section {

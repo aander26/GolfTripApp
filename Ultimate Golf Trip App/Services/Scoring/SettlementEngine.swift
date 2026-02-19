@@ -234,8 +234,9 @@ struct SettlementEngine {
 
             // Losers split the cost
             let losers = participants.filter { $0 != winnerId }
-            guard !losers.isEmpty else { continue }
-            let perLoserCost = result.amount / Double(losers.count)
+            let loserCount = losers.count
+            guard loserCount > 0 else { continue }
+            let perLoserCost = (result.amount / Double(loserCount) * 100).rounded() / 100
             for loserId in losers {
                 balances[loserId, default: 0] -= perLoserCost
             }

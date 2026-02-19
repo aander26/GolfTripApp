@@ -23,7 +23,7 @@ struct SideGameEngine {
 
             guard !scores.isEmpty else { continue }
 
-            let minScore = scores.min(by: { $0.net < $1.net })!.net
+            guard let minScore = scores.min(by: { $0.net < $1.net })?.net else { continue }
             let winners = scores.filter { $0.net == minScore }
 
             if winners.count == 1 {
@@ -274,7 +274,7 @@ struct SideGameEngine {
             }
 
             guard !scores.isEmpty else { continue }
-            let minScore = scores.min(by: { $0.net < $1.net })!.net
+            guard let minScore = scores.min(by: { $0.net < $1.net })?.net else { continue }
             let winners = scores.filter { $0.net == minScore }
 
             if winners.count == 1 {

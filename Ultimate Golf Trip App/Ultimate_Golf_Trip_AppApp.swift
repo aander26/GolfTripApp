@@ -35,6 +35,17 @@ struct AppBootstrapView: View {
     var body: some View {
         ContentView()
             .onAppear {
+                #if DEBUG
+                if ProcessInfo.processInfo.arguments.contains("-screenshots") {
+                    // Load sample data for App Store screenshots
+                    let sample = SampleData.makeAppState()
+                    appState.currentUser = sample.currentUser
+                    appState.trips = sample.trips
+                    appState.currentTrip = sample.currentTrip
+                    UserDefaults.standard.set(true, forKey: "hasSeenOnboarding")
+                    return
+                }
+                #endif
                 if appState.modelContext == nil {
                     appState.modelContext = modelContext
                     UserDefaultsMigrator.migrateIfNeeded(context: modelContext)
