@@ -273,7 +273,7 @@ struct SettlementEngine {
         var balances: [UUID: Double] = [:]
         let losers = bet.participants.filter { $0 != winnerId }
 
-        // Each loser pays the stake
+        // Each loser owes the stake amount
         for loserId in losers {
             balances[loserId, default: 0] -= dollarAmount
         }
