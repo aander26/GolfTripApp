@@ -73,7 +73,7 @@ struct MetricDetailView: View {
             // Related Bets
             let relatedBets = viewModel.currentTrip?.bets(forMetric: metric.id) ?? []
             if !relatedBets.isEmpty {
-                Section("Side Bets") {
+                Section("Challenges") {
                     ForEach(relatedBets) { bet in
                         SideBetCardView(bet: bet, viewModel: viewModel)
                     }

@@ -1,6 +1,6 @@
 import Foundation
 
-enum BetStatus: String, Codable, CaseIterable, Identifiable {
+enum ChallengeStatus: String, Codable, CaseIterable, Identifiable {
     case active = "active"
     case completed = "completed"
 
@@ -13,3 +13,6 @@ enum BetStatus: String, Codable, CaseIterable, Identifiable {
         }
     }
 }
+
+/// Backward compatibility alias for serialized data
+typealias BetStatus = ChallengeStatus

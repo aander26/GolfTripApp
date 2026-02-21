@@ -7,7 +7,7 @@ struct CreateSideBetView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Bet Name") {
+                Section("Challenge Name") {
                     TextField("e.g. Most Birdies", text: $viewModel.newBetName)
                 }
 
@@ -29,7 +29,7 @@ struct CreateSideBetView: View {
                     }
                 }
 
-                Section("Bet Type") {
+                Section("Challenge Type") {
                     Picker("Type", selection: $viewModel.newBetType) {
                         ForEach(BetType.allCases) { type in
                             VStack(alignment: .leading) {
@@ -88,15 +88,17 @@ struct CreateSideBetView: View {
                     }
                 }
 
-                Section("Stakes") {
-                    Toggle("Pot Mode", isOn: $viewModel.newBetIsPot)
+                Section {
+                    TextField("e.g. Bragging Rights, Loser buys dinner, 20 pts", text: $viewModel.newBetStake)
+
+                    Toggle("Pool Mode", isOn: $viewModel.newBetIsPot)
 
                     if viewModel.newBetIsPot {
                         HStack {
-                            Text("Buy-in per player")
+                            Text("Entry per player")
                             Spacer()
                             HStack(spacing: 2) {
-                                Text("$")
+                                Text("pts")
                                     .foregroundStyle(.secondary)
                                 TextField("10", text: $viewModel.newBetPotAmount)
                                     .keyboardType(.decimalPad)
@@ -110,19 +112,21 @@ struct CreateSideBetView: View {
                            viewModel.newBetParticipants.count >= 2 {
                             let total = potValue * Double(viewModel.newBetParticipants.count)
                             HStack {
-                                Image(systemName: "dollarsign.circle.fill")
+                                Image(systemName: "person.3.fill")
                                     .foregroundStyle(Theme.primary)
-                                Text("\(viewModel.newBetParticipants.count) players × $\(String(format: "%.0f", potValue)) = **$\(String(format: "%.0f", total)) pot**")
+                                Text("\(viewModel.newBetParticipants.count) players × \(String(format: "%.0f", potValue)) pts = **\(String(format: "%.0f", total)) pt pool**")
                                     .font(.subheadline)
                             }
                             .padding(.vertical, 4)
                         }
-                    } else {
-                        TextField("e.g. $20 or buys dinner", text: $viewModel.newBetStake)
                     }
+                } header: {
+                    Text("Commitment")
+                } footer: {
+                    Text("What's on the line? Examples: \"Bragging Rights\", \"Loser buys dinner\", \"20 pts\". Turn on Pool Mode to collect points from each player into a winner-take-all pool.")
                 }
             }
-            .navigationTitle("Create Side Bet")
+            .navigationTitle("Create Challenge")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

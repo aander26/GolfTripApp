@@ -117,7 +117,7 @@ class SideGameViewModel {
             holeNumber: 0,
             winnerId: winnerId,
             amount: game.totalPot,
-            description: "\(winnerName) wins the $\(String(format: "%.0f", game.totalPot)) pot"
+            description: "\(winnerName) wins the \(String(format: "%.0f", game.totalPool)) pt pool"
         )
         game.results = [result]
         game.isActive = false

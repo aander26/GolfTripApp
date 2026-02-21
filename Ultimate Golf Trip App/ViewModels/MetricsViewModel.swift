@@ -187,14 +187,8 @@ class MetricsViewModel {
         let target = Double(newBetTargetValue)
         let potAmountValue = Double(newBetPotAmount) ?? 0
 
-        // For pot bets, auto-generate the stake label from the pot amount
-        let stakeText: String
-        if newBetIsPot && potAmountValue > 0 {
-            let total = potAmountValue * Double(newBetParticipants.count)
-            stakeText = "$\(String(format: "%.0f", total)) pot"
-        } else {
-            stakeText = newBetStake.isEmpty ? "Bragging Rights" : newBetStake
-        }
+        // Use the free-text commitment; default to "Bragging Rights" if empty
+        let stakeText: String = newBetStake.isEmpty ? "Bragging Rights" : newBetStake
 
         let bet = SideBet(
             name: newBetName,

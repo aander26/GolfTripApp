@@ -12,10 +12,10 @@ final class SideGame {
     var isActive: Bool
     var designatedHoles: [Int]
 
-    /// When true, stakes represents a per-player buy-in and the winner takes the full pot.
+    /// When true, stakes represents a per-player entry and the winner takes the full pool.
     var isPotGame: Bool
 
-    /// The winner of a pot game (set when the pot is resolved).
+    /// The winner of a pool game (set when the pool is resolved).
     var potWinnerId: UUID?
 
     // Relationships
@@ -40,7 +40,7 @@ final class SideGame {
         self.round = round
         self.participantIds = participantIds
         self.stakes = stakes
-        self.stakesLabel = stakesLabel.isEmpty ? (stakes > 0 ? "$\(String(format: "%.0f", stakes))" : "Bragging Rights") : stakesLabel
+        self.stakesLabel = stakesLabel.isEmpty ? (stakes > 0 ? "\(String(format: "%.0f", stakes)) pts" : "Bragging Rights") : stakesLabel
         self.results = results
         self.isActive = isActive
         self.designatedHoles = designatedHoles
@@ -60,21 +60,27 @@ final class SideGame {
 
     var hasResults: Bool { !results.isEmpty }
 
-    // MARK: - Pot Game Properties
+    // MARK: - Pool Game Properties
 
-    /// Total pot amount: buy-in per player x number of players
-    var totalPot: Double {
+    /// Total pool: entry per player × number of players
+    var totalPool: Double {
         stakes * Double(participantIds.count)
     }
 
-    /// Display text for pot games: "4 x $10 = $40 pot"
-    var potDisplayText: String {
+    /// Backward compatibility accessor
+    var totalPot: Double { totalPool }
+
+    /// Display text for pool games: "4 entries × 5 pts = 20 pt pool"
+    var poolDisplayText: String {
         let perPlayer = String(format: "%.0f", stakes)
-        let total = String(format: "%.0f", totalPot)
-        return "\(participantIds.count) x $\(perPlayer) = $\(total) pot"
+        let total = String(format: "%.0f", totalPool)
+        return "\(participantIds.count) entries × \(perPlayer) pts = \(total) pt pool"
     }
 
-    /// Whether the pot game has been resolved with a winner
+    /// Backward compatibility accessor
+    var potDisplayText: String { poolDisplayText }
+
+    /// Whether the pool game has been resolved with a winner
     var isPotResolved: Bool {
         isPotGame && potWinnerId != nil
     }

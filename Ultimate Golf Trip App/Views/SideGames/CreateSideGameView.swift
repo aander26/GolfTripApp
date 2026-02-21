@@ -35,17 +35,14 @@ struct CreateSideGameView: View {
                 }
 
                 // Stakes
-                Section("Stakes") {
-                    Toggle("Pot Mode", isOn: $viewModel.isPotGame)
+                Section("Points") {
+                    Toggle("Pool Mode", isOn: $viewModel.isPotGame)
 
-                    HStack {
-                        Text("$")
-                        TextField(
-                            viewModel.isPotGame ? "Buy-in per player" : "Amount per unit",
-                            text: $viewModel.stakesAmount
-                        )
-                        .keyboardType(.decimalPad)
-                    }
+                    TextField(
+                        viewModel.isPotGame ? "Entry per player" : "Points per unit",
+                        text: $viewModel.stakesAmount
+                    )
+                    .keyboardType(.decimalPad)
 
                     if viewModel.isPotGame {
                         let stakes = Double(viewModel.stakesAmount) ?? 0
@@ -53,14 +50,14 @@ struct CreateSideGameView: View {
                         if stakes > 0 && playerCount > 0 {
                             let total = stakes * Double(playerCount)
                             HStack {
-                                Image(systemName: "banknote")
+                                Image(systemName: "person.3.fill")
                                     .foregroundStyle(Theme.primary)
-                                Text("\(playerCount) players x $\(String(format: "%.0f", stakes)) = **$\(String(format: "%.0f", total)) pot**")
+                                Text("\(playerCount) players \u{00D7} \(String(format: "%.0f", stakes)) pts = **\(String(format: "%.0f", total)) pt pool**")
                                     .font(.subheadline)
                             }
                             .listRowBackground(Theme.primaryLight.opacity(0.3))
                         } else {
-                            Text("Select players and enter a buy-in to see the pot total")
+                            Text("Select players and enter points to see the pool total")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }

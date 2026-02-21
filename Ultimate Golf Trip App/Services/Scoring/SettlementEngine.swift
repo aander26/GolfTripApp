@@ -2,26 +2,26 @@ import Foundation
 
 // MARK: - Result Types
 
-/// A player's net financial position across all games and bets
+/// A player's net position across all games and challenges
 struct PlayerBalance: Identifiable {
     let playerId: UUID
     let playerName: String
-    let netBalance: Double  // positive = owed money (winner), negative = owes money (loser)
+    let netBalance: Double  // positive = net winner, negative = net loser
 
     var id: UUID { playerId }
 
     var formattedBalance: String {
         if netBalance >= 0 {
-            return "+$\(String(format: "%.0f", netBalance))"
+            return "+\(String(format: "%.0f", netBalance)) pts"
         } else {
-            return "-$\(String(format: "%.0f", abs(netBalance)))"
+            return "-\(String(format: "%.0f", abs(netBalance))) pts"
         }
     }
 
     var isPositive: Bool { netBalance >= 0 }
 }
 
-/// A single payment instruction: "Player A pays Player B $X"
+/// A single settlement instruction: "Player A owes Player B X pts"
 struct Payment: Identifiable {
     let id = UUID()
     let fromPlayerId: UUID
@@ -31,23 +31,23 @@ struct Payment: Identifiable {
     let amount: Double
 
     var formattedAmount: String {
-        "$\(String(format: "%.0f", amount))"
+        "\(String(format: "%.0f", amount)) pts"
     }
 
     var displayText: String {
-        "\(fromName) pays \(toName) \(formattedAmount)"
+        "\(fromName) owes \(toName) \(formattedAmount)"
     }
 }
 
-/// Per-game breakdown showing each player's winnings/losses within that game
+/// Per-game breakdown showing each player's results within that game
 struct GameBreakdown: Identifiable {
     let gameId: UUID
     let gameName: String
-    let gameType: String  // "Skins", "Nassau", or the bet name
+    let gameType: String  // "Skins", "Nassau", or the challenge name
     let isMonetary: Bool
-    let stakeText: String?  // For non-monetary bets: "buys dinner"
-    let winnerId: UUID?     // For non-monetary bets
-    let winnerName: String? // For non-monetary bets
+    let stakeText: String?  // For non-point challenges: "buys dinner"
+    let winnerId: UUID?     // For non-point challenges
+    let winnerName: String? // For non-point challenges
     let playerAmounts: [(playerId: UUID, playerName: String, amount: Double)]
 
     var id: UUID { gameId }
@@ -111,12 +111,12 @@ struct SettlementEngine {
             }
         }
 
-        // 2. Process all completed side bets
+        // 2. Process all completed challenges
         for bet in trip.completedSideBets {
             guard let winnerId = bet.winnerId else { continue }
 
             if bet.isPotBet && bet.potAmount > 0 {
-                // Pot bet: each participant puts up potAmount, winner takes the pot
+                // Pool challenge: each participant contributes potAmount, winner takes the pool
                 let balances = calculatePotBetBalances(bet: bet)
                 let playerAmounts: [(playerId: UUID, playerName: String, amount: Double)] = balances.compactMap { (playerId, amount) in
                     guard let player = trip.player(withId: playerId) else { return nil }
@@ -127,7 +127,7 @@ struct SettlementEngine {
                     gameBreakdowns.append(GameBreakdown(
                         gameId: bet.id,
                         gameName: bet.name,
-                        gameType: "Side Bet (Pot)",
+                        gameType: "Challenge (Pool)",
                         isMonetary: true,
                         stakeText: bet.potDisplayText,
                         winnerId: winnerId,
@@ -139,8 +139,26 @@ struct SettlementEngine {
                 for (playerId, amount) in balances {
                     aggregatedBalances[playerId, default: 0] += amount
                 }
+
+                // If the pool challenge also has a free-text commitment (e.g. "Loser buys dinner"),
+                // add it to the non-monetary results too
+                let stakeIsNonNumeric = parseBetStake(bet.stake) == nil
+                    && !bet.stake.isEmpty
+                    && bet.stake != "Bragging Rights"
+                if stakeIsNonNumeric {
+                    nonMonetaryBets.append(GameBreakdown(
+                        gameId: UUID(), // unique ID so both entries show
+                        gameName: bet.name,
+                        gameType: "Challenge",
+                        isMonetary: false,
+                        stakeText: bet.stake,
+                        winnerId: winnerId,
+                        winnerName: trip.player(withId: winnerId)?.name,
+                        playerAmounts: []
+                    ))
+                }
             } else if let dollarAmount = parseBetStake(bet.stake), dollarAmount > 0 {
-                // Monetary bet (flat stake)
+                // Point-based challenge (flat stake)
                 let balances = calculateSideBetBalances(bet: bet, dollarAmount: dollarAmount)
                 let playerAmounts: [(playerId: UUID, playerName: String, amount: Double)] = balances.compactMap { (playerId, amount) in
                     guard let player = trip.player(withId: playerId) else { return nil }
@@ -151,7 +169,7 @@ struct SettlementEngine {
                     gameBreakdowns.append(GameBreakdown(
                         gameId: bet.id,
                         gameName: bet.name,
-                        gameType: "Side Bet",
+                        gameType: "Challenge",
                         isMonetary: true,
                         stakeText: bet.stake,
                         winnerId: winnerId,
@@ -164,11 +182,11 @@ struct SettlementEngine {
                     aggregatedBalances[playerId, default: 0] += amount
                 }
             } else {
-                // Non-monetary bet (bragging rights, buys dinner, etc.)
+                // Non-point challenge (bragging rights, buys dinner, etc.)
                 nonMonetaryBets.append(GameBreakdown(
                     gameId: bet.id,
                     gameName: bet.name,
-                    gameType: "Side Bet",
+                    gameType: "Challenge",
                     isMonetary: false,
                     stakeText: bet.stake,
                     winnerId: winnerId,
@@ -184,10 +202,10 @@ struct SettlementEngine {
             return PlayerBalance(playerId: playerId, playerName: player.name, netBalance: balance)
         }.sorted { $0.netBalance > $1.netBalance }
 
-        // 4. Calculate total money in play
+        // 4. Calculate total points in play
         let totalMoneyInPlay = aggregatedBalances.values.filter { $0 > 0 }.reduce(0, +)
 
-        // 5. Simplify debts into minimum payments
+        // 5. Simplify balances into minimum settlements
         let payments = simplifyDebts(balances: aggregatedBalances, trip: trip)
 
         return SettlementSummary(
@@ -245,10 +263,10 @@ struct SettlementEngine {
         return balances
     }
 
-    // MARK: - Side Bet Balances
+    // MARK: - Challenge Balances
 
-    /// Calculate per-player balances for a completed side bet with a dollar stake.
-    /// Each loser pays the stake amount to the winner.
+    /// Calculate per-player balances for a completed challenge.
+    /// Each loser transfers the stake amount to the winner.
     static func calculateSideBetBalances(bet: SideBet, dollarAmount: Double) -> [UUID: Double] {
         guard let winnerId = bet.winnerId else { return [:] }
 
@@ -266,9 +284,9 @@ struct SettlementEngine {
         return balances
     }
 
-    // MARK: - Pot Bet Balances
+    // MARK: - Pool Challenge Balances
 
-    /// Calculate per-player balances for a pot-mode side bet.
+    /// Calculate per-player balances for a pool-mode challenge.
     /// Each loser loses their buy-in; winner gains everyone else's buy-in.
     static func calculatePotBetBalances(bet: SideBet) -> [UUID: Double] {
         guard let winnerId = bet.winnerId, bet.isPotBet, bet.potAmount > 0 else { return [:] }
@@ -287,10 +305,10 @@ struct SettlementEngine {
         return balances
     }
 
-    // MARK: - Stake Parsing
+    // MARK: - Value Parsing
 
-    /// Parse a dollar amount from a free-text stake string.
-    /// Returns nil for non-monetary stakes like "Bragging Rights" or "buys dinner".
+    /// Parse a numeric value from a free-text stake string.
+    /// Returns nil for non-numeric stakes like "Bragging Rights" or "buys dinner".
     static func parseBetStake(_ stake: String) -> Double? {
         let trimmed = stake.trimmingCharacters(in: .whitespaces)
 
@@ -313,7 +331,7 @@ struct SettlementEngine {
 
     // MARK: - Debt Simplification
 
-    /// Simplify a set of balances into minimum number of payments.
+    /// Simplify a set of balances into minimum number of settlements.
     /// Uses greedy algorithm: repeatedly pair the largest creditor with the largest debtor.
     static func simplifyDebts(balances: [UUID: Double], trip: Trip) -> [Payment] {
         // Separate into creditors (positive) and debtors (negative)
@@ -321,7 +339,7 @@ struct SettlementEngine {
         var debtors: [(id: UUID, amount: Double)] = []
 
         for (playerId, balance) in balances {
-            let rounded = (balance * 100).rounded() / 100  // Round to cents
+            let rounded = (balance * 100).rounded() / 100  // Round to hundredths
             if rounded > 0.01 {
                 creditors.append((id: playerId, amount: rounded))
             } else if rounded < -0.01 {

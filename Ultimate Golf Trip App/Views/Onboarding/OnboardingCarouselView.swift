@@ -27,7 +27,7 @@ struct OnboardingCarouselView: View {
         OnboardingPage(
             icon: "party.popper.fill",
             title: "Side Games & More",
-            description: "Skins, Nassau, custom bets, weather forecasts, war room events, and Spotify playlists — all in one app.",
+            description: "Skins, Nassau, custom challenges, weather forecasts, war room events, and Spotify playlists — all in one app.",
             accentColor: Color(red: 0.976, green: 0.451, blue: 0.086) // orange
         )
     ]

@@ -28,12 +28,12 @@ struct SettlementView: View {
                         Text("Net Balances")
                     } footer: {
                         if settlement.totalMoneyInPlay > 0 {
-                            Text("Total in play: $\(String(format: "%.0f", settlement.totalMoneyInPlay))")
+                            Text("Total in play: \(String(format: "%.0f", settlement.totalMoneyInPlay)) pts")
                         }
                     }
                 }
 
-                // Settle Up — Payment Instructions
+                // Who Owes What — Settlement Instructions
                 if !settlement.payments.isEmpty {
                     Section {
                         ForEach(settlement.payments) { payment in
@@ -41,20 +41,20 @@ struct SettlementView: View {
                         }
                     } header: {
                         HStack {
-                            Text("Settle Up")
+                            Text("Who Owes What")
                             Spacer()
                             Text("\(settlement.payments.count) payment\(settlement.payments.count == 1 ? "" : "s")")
                                 .font(.caption)
                                 .foregroundStyle(Theme.textSecondary)
                         }
                     } footer: {
-                        Text("Minimum payments to clear all debts.")
+                        Text("Minimum settlements to balance everyone out.")
                     }
                 }
 
                 // Non-Monetary Bets
                 if !settlement.nonMonetaryBets.isEmpty {
-                    Section("Other Bets") {
+                    Section("Other Challenges") {
                         ForEach(settlement.nonMonetaryBets) { bet in
                             nonMonetaryBetRow(bet)
                         }
@@ -73,8 +73,8 @@ struct SettlementView: View {
                                             .font(.subheadline)
                                         Spacer()
                                         Text(entry.amount >= 0
-                                             ? "+$\(String(format: "%.0f", entry.amount))"
-                                             : "-$\(String(format: "%.0f", abs(entry.amount)))")
+                                             ? "+\(String(format: "%.0f", entry.amount)) pts"
+                                             : "-\(String(format: "%.0f", abs(entry.amount))) pts")
                                             .font(.subheadline)
                                             .fontWeight(.semibold)
                                             .foregroundStyle(entry.amount >= 0 ? .green : .red)
@@ -158,10 +158,16 @@ struct SettlementView: View {
                 Text(bet.gameName)
                     .font(.subheadline)
                     .fontWeight(.medium)
-                if let winnerName = bet.winnerName, let stakeText = bet.stakeText {
-                    Text("\(winnerName) wins: \(stakeText)")
-                        .font(.caption)
-                        .foregroundStyle(Theme.textSecondary)
+                if let winnerName = bet.winnerName {
+                    if let stakeText = bet.stakeText, !stakeText.isEmpty, stakeText != "Bragging Rights" {
+                        Text("\(winnerName) wins \(stakeText)")
+                            .font(.caption)
+                            .foregroundStyle(Theme.textSecondary)
+                    } else {
+                        Text("\(winnerName) wins bragging rights")
+                            .font(.caption)
+                            .foregroundStyle(Theme.textSecondary)
+                    }
                 }
             }
 
@@ -180,15 +186,15 @@ struct SettlementView: View {
         VStack(spacing: 20) {
             Spacer()
 
-            Image(systemName: "banknote")
+            Image(systemName: "list.clipboard")
                 .font(.system(size: 60))
                 .foregroundStyle(Theme.primary)
 
-            Text("No Settlements Yet")
+            Text("No Results Yet")
                 .font(.title2)
                 .fontWeight(.bold)
 
-            Text("Complete some side games and settle bets to see who owes who across the entire trip.")
+            Text("Complete some side games and challenges to see the trip summary.")
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)

@@ -235,7 +235,7 @@ struct SideGameEngine {
                 holeNumber: 18,
                 winnerId: holder,
                 amount: -stakes * Double(otherPlayers),
-                description: "Holds snake at end - pays \(otherPlayers) player(s)"
+                description: "Holds snake at end - owes \(otherPlayers) player(s)"
             ))
         }
 

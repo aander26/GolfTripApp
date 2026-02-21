@@ -13,16 +13,16 @@ struct SideGameDetailView: View {
                 LabeledContent("Type", value: game.type.rawValue)
 
                 if game.isPotGame {
-                    LabeledContent("Buy-in", value: "$\(String(format: "%.0f", game.stakes))/player")
+                    LabeledContent("Entry", value: "\(String(format: "%.0f", game.stakes)) pts/player")
                     HStack {
-                        Text("Total Pot")
+                        Text("Total Pool")
                         Spacer()
-                        Text("$\(String(format: "%.0f", game.totalPot))")
+                        Text("\(String(format: "%.0f", game.totalPool)) pts")
                             .fontWeight(.bold)
                             .foregroundStyle(Theme.primary)
                     }
                 } else {
-                    LabeledContent("Stakes", value: game.stakesLabel)
+                    LabeledContent("Value", value: game.stakesLabel)
                 }
 
                 LabeledContent("Players", value: "\(game.participantIds.count)")
@@ -52,7 +52,7 @@ struct SideGameDetailView: View {
                             VStack(alignment: .leading) {
                                 Text(player.name)
                                     .font(.headline)
-                                Text("Won $\(String(format: "%.0f", game.totalPot)) pot")
+                                Text("Won the \(String(format: "%.0f", game.totalPool)) pt pool")
                                     .font(.subheadline)
                                     .foregroundStyle(Theme.primary)
                             }
@@ -89,7 +89,7 @@ struct SideGameDetailView: View {
 
                                 Spacer()
 
-                                Text(standing.amount >= 0 ? "+$\(String(format: "%.0f", standing.amount))" : "-$\(String(format: "%.0f", abs(standing.amount)))")
+                                Text(standing.amount >= 0 ? "+\(String(format: "%.0f", standing.amount)) pts" : "-\(String(format: "%.0f", abs(standing.amount))) pts")
                                     .font(.headline)
                                     .fontWeight(.semibold)
                                     .foregroundStyle(standing.amount >= 0 ? .green : .red)
@@ -125,7 +125,7 @@ struct SideGameDetailView: View {
                                     Spacer()
 
                                     if result.amount != 0 {
-                                        Text("$\(String(format: "%.0f", abs(result.amount)))")
+                                        Text("\(String(format: "%.0f", abs(result.amount))) pts")
                                             .font(.subheadline)
                                             .fontWeight(.semibold)
                                     }
@@ -158,7 +158,7 @@ struct SideGameDetailView: View {
                         Button {
                             showingPotWinnerPicker = true
                         } label: {
-                            Label("Select Pot Winner", systemImage: "trophy")
+                            Label("Select Pool Winner", systemImage: "trophy")
                         }
                     } else {
                         // Regular games: calculate or add results
@@ -208,7 +208,7 @@ struct PotWinnerPickerSheet: View {
             List {
                 Section {
                     HStack {
-                        Image(systemName: "banknote")
+                        Image(systemName: "list.clipboard")
                             .foregroundStyle(Theme.primary)
                         Text(game.potDisplayText)
                             .font(.headline)
@@ -248,7 +248,7 @@ struct PotWinnerPickerSheet: View {
                     }
                 }
             }
-            .navigationTitle("Pot Winner")
+            .navigationTitle("Pool Winner")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

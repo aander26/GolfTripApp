@@ -1,6 +1,6 @@
 import Foundation
 
-enum BetType: String, Codable, CaseIterable, Identifiable {
+enum ChallengeType: String, Codable, CaseIterable, Identifiable {
     case highestTotal = "highestTotal"
     case lowestTotal = "lowestTotal"
     case closestToTarget = "closestToTarget"
@@ -24,7 +24,7 @@ enum BetType: String, Codable, CaseIterable, Identifiable {
         case .highestTotal: return "Player with the highest cumulative value wins"
         case .lowestTotal: return "Player with the lowest cumulative value wins"
         case .closestToTarget: return "Player closest to a target number wins"
-        case .overUnder: return "Bet on whether the total goes over or under a set number"
+        case .overUnder: return "Predict whether the total goes over or under a set number"
         case .headToHead: return "Two players go head-to-head on a metric"
         }
     }
@@ -39,3 +39,6 @@ enum BetType: String, Codable, CaseIterable, Identifiable {
         }
     }
 }
+
+/// Backward compatibility alias for serialized data
+typealias BetType = ChallengeType

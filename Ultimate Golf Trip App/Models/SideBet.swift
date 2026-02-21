@@ -1,6 +1,8 @@
 import Foundation
 import SwiftData
 
+/// A friendly challenge between trip participants based on a tracked metric.
+/// (SwiftData class name kept as `SideBet` to preserve existing persistent stores.)
 @Model
 final class SideBet {
     var id: UUID
@@ -12,9 +14,9 @@ final class SideBet {
     var statusRaw: String
     var winnerId: UUID?
 
-    /// When true, each participant puts up `potAmount` and the winner takes the total pot.
+    /// When true, each participant contributes `potAmount` and the winner takes the total pool.
     var isPotBet: Bool
-    /// Per-player buy-in amount (only used when `isPotBet` is true).
+    /// Per-player entry amount (only used when `isPotBet` is true).
     var potAmount: Double
 
     // Relationships
@@ -25,11 +27,11 @@ final class SideBet {
         id: UUID = UUID(),
         name: String,
         metric: Metric? = nil,
-        betType: BetType = .highestTotal,
+        betType: ChallengeType = .highestTotal,
         targetValue: Double? = nil,
         participants: [UUID] = [],
         stake: String = "Bragging Rights",
-        status: BetStatus = .active,
+        status: ChallengeStatus = .active,
         winnerId: UUID? = nil,
         isPotBet: Bool = false,
         potAmount: Double = 0
@@ -49,13 +51,19 @@ final class SideBet {
 
     // MARK: - Computed Properties
 
-    var betType: BetType {
-        get { BetType(rawValue: betTypeRaw) ?? .highestTotal }
+    var challengeType: ChallengeType {
+        get { ChallengeType(rawValue: betTypeRaw) ?? .highestTotal }
         set { betTypeRaw = newValue.rawValue }
     }
 
-    var status: BetStatus {
-        get { BetStatus(rawValue: statusRaw) ?? .active }
+    /// Backward compatibility accessor
+    var betType: ChallengeType {
+        get { challengeType }
+        set { challengeType = newValue }
+    }
+
+    var status: ChallengeStatus {
+        get { ChallengeStatus(rawValue: statusRaw) ?? .active }
         set { statusRaw = newValue.rawValue }
     }
 
@@ -79,20 +87,26 @@ final class SideBet {
     }
 
     var requiresTarget: Bool {
-        betType == .closestToTarget || betType == .overUnder
+        challengeType == .closestToTarget || challengeType == .overUnder
     }
 
-    // MARK: - Pot Properties
+    // MARK: - Pool Properties
 
-    /// Total pot: per-player buy-in × number of participants.
-    var totalPot: Double {
+    /// Total pool: per-player entry × number of participants.
+    var totalPool: Double {
         potAmount * Double(participants.count)
     }
 
-    /// Display text: "4 x $10 = $40 pot"
-    var potDisplayText: String {
+    /// Backward compatibility accessor
+    var totalPot: Double { totalPool }
+
+    /// Display text: "4 entries × 10 pts = 40 pt pool"
+    var poolDisplayText: String {
         let perPlayer = String(format: "%.0f", potAmount)
-        let total = String(format: "%.0f", totalPot)
-        return "\(participants.count) x $\(perPlayer) = $\(total) pot"
+        let total = String(format: "%.0f", totalPool)
+        return "\(participants.count) entries × \(perPlayer) pts = \(total) pt pool"
     }
+
+    /// Backward compatibility accessor
+    var potDisplayText: String { poolDisplayText }
 }

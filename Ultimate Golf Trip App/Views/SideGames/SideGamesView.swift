@@ -13,8 +13,8 @@ struct SideGamesView: View {
                     Text("Games").tag(0)
                     Text("On-Course").tag(1)
                     Text("Off-Course").tag(2)
-                    Text("Bets").tag(3)
-                    Text("Settle Up").tag(4)
+                    Text("Challenges").tag(3)
+                    Text("Results").tag(4)
                 }
                 .pickerStyle(.segmented)
                 .padding(.horizontal)
@@ -52,7 +52,7 @@ struct SideGamesView: View {
                             Button {
                                 viewModel.showingCreateGame = true
                             } label: {
-                                Label("New Side Game", systemImage: "dollarsign.circle")
+                                Label("New Side Game", systemImage: "flag.checkered")
                             }
                         case 1:
                             Button {
@@ -84,7 +84,7 @@ struct SideGamesView: View {
                             Button {
                                 metricsViewModel.showingCreateBet = true
                             } label: {
-                                Label("New Side Bet", systemImage: "trophy")
+                                Label("New Challenge", systemImage: "trophy")
                             }
                         default:
                             EmptyView()
@@ -128,7 +128,7 @@ struct SideGamesView: View {
         VStack(spacing: 20) {
             Spacer()
 
-            Image(systemName: "dollarsign.circle")
+            Image(systemName: "flag.checkered")
                 .font(.system(size: 60))
                 .foregroundStyle(Theme.primary)
 
@@ -183,7 +183,7 @@ struct SideGamesView: View {
         }
     }
 
-    // MARK: - Side Bets
+    // MARK: - Challenges
 
     @ViewBuilder
     private var sideBetsContent: some View {
@@ -195,11 +195,11 @@ struct SideGamesView: View {
                     .font(.system(size: 60))
                     .foregroundStyle(Theme.primary)
 
-                Text("No Side Bets")
+                Text("No Challenges")
                     .font(.title2)
                     .fontWeight(.bold)
 
-                Text("Create bets on any tracked metric.\nWho has the most birdies? Fewest beers? You decide.")
+                Text("Create challenges on any tracked metric.\nWho has the most birdies? Fewest beers? You decide.")
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal)
@@ -207,7 +207,7 @@ struct SideGamesView: View {
                 Button {
                     metricsViewModel.showingCreateBet = true
                 } label: {
-                    Label("Create Side Bet", systemImage: "plus.circle.fill")
+                    Label("Create Challenge", systemImage: "plus.circle.fill")
                         .font(.headline)
                         .padding(.horizontal, 32)
                         .padding(.vertical, 14)
@@ -219,7 +219,7 @@ struct SideGamesView: View {
         } else {
             List {
                 if !metricsViewModel.activeBets.isEmpty {
-                    Section("Active Bets") {
+                    Section("Active Challenges") {
                         ForEach(metricsViewModel.activeBets) { bet in
                             SideBetCardView(
                                 bet: bet,
@@ -254,7 +254,7 @@ struct SideGameRowView: View {
                     .font(.headline)
 
                 if game.isPotGame {
-                    Text("POT")
+                    Text("POOL")
                         .font(.caption2)
                         .fontWeight(.bold)
                         .padding(.horizontal, 6)
@@ -267,7 +267,7 @@ struct SideGameRowView: View {
                 Spacer()
 
                 if game.isPotGame {
-                    Text("$\(String(format: "%.0f", game.totalPot))")
+                    Text("\(String(format: "%.0f", game.totalPool)) pts")
                         .font(.subheadline)
                         .fontWeight(.semibold)
                         .foregroundStyle(Theme.primary)
@@ -284,7 +284,7 @@ struct SideGameRowView: View {
                     .foregroundStyle(.secondary)
 
                 if game.isPotGame {
-                    Text("$\(String(format: "%.0f", game.stakes))/player")
+                    Text("\(String(format: "%.0f", game.stakes)) pts/player")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

@@ -77,7 +77,7 @@ struct TripRulesView: View {
                     pointsPerHalve = 0.0
                     pointsPerLoss = 0.0
                 }
-                Button("High Stakes (3 / 1 / 0)") {
+                Button("Competitive (3 / 1 / 0)") {
                     pointsPerWin = 3.0
                     pointsPerHalve = 1.0
                     pointsPerLoss = 0.0

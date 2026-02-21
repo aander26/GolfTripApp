@@ -15,7 +15,7 @@ struct SideBetCardView: View {
                     .font(.headline)
 
                 if bet.isPotBet {
-                    Text("POT")
+                    Text("POOL")
                         .font(.caption2)
                         .fontWeight(.bold)
                         .padding(.horizontal, 6)
@@ -28,7 +28,7 @@ struct SideBetCardView: View {
                 Spacer()
 
                 if bet.isPotBet && bet.potAmount > 0 {
-                    Text("$\(String(format: "%.0f", bet.totalPot))")
+                    Text("\(String(format: "%.0f", bet.totalPool)) pts")
                         .font(.caption.bold())
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
@@ -63,7 +63,7 @@ struct SideBetCardView: View {
                         .foregroundStyle(.secondary)
                 }
                 if bet.isPotBet && bet.potAmount > 0 {
-                    Text("· $\(String(format: "%.0f", bet.potAmount))/player")
+                    Text("· \(String(format: "%.0f", bet.potAmount)) pts/player")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -101,13 +101,20 @@ struct SideBetCardView: View {
                 if bet.isCompleted {
                     if let winnerId = bet.winnerId,
                        let winner = viewModel.currentTrip?.player(withId: winnerId) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "trophy.fill")
-                                .foregroundStyle(.yellow)
-                                .font(.caption)
-                            Text("\(winner.name) wins!")
-                                .font(.caption.bold())
-                                .foregroundStyle(Theme.primary)
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "trophy.fill")
+                                    .foregroundStyle(.yellow)
+                                    .font(.caption)
+                                Text("\(winner.name) wins!")
+                                    .font(.caption.bold())
+                                    .foregroundStyle(Theme.primary)
+                            }
+                            if !bet.stake.isEmpty {
+                                Text(bet.stake)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     } else {
                         Text("Completed")
@@ -202,7 +209,7 @@ struct BetWinnerPickerSheet: View {
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     } else {
-                        Text("Stakes: \(bet.stake)")
+                        Text("Commitment: \(bet.stake)")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     }
@@ -245,16 +252,20 @@ struct BetWinnerPickerSheet: View {
                         }
                     }
 
-                    // Show what winning means for pot bets
-                    if bet.isPotBet && bet.potAmount > 0 {
-                        Section {
-                            HStack {
-                                Image(systemName: "info.circle")
-                                    .foregroundStyle(.secondary)
-                                Text("Winner takes the $\(String(format: "%.0f", bet.totalPot)) pot. This will appear in Settle Up.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                    // Show what winning means
+                    Section {
+                        HStack {
+                            Image(systemName: "info.circle")
+                                .foregroundStyle(.secondary)
+                            Group {
+                                if bet.isPotBet && bet.potAmount > 0 {
+                                    Text("Winner takes the \(String(format: "%.0f", bet.totalPool)) pt pool. This will appear in Results.")
+                                } else {
+                                    Text("Winner gets \(bet.stake.isEmpty ? "bragging rights" : bet.stake). This will appear in Results.")
+                                }
                             }
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -292,7 +303,7 @@ struct BetWinnerPickerSheet: View {
         metric: nil,
         betType: .highestTotal,
         participants: players.map(\.id),
-        stake: "$20"
+        stake: "Bragging Rights"
     )
     List {
         SideBetCardView(bet: bet, viewModel: vm)

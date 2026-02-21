@@ -21,7 +21,7 @@ enum SideGameType: String, Codable, CaseIterable, Identifiable {
         case .skins:
             return "Win the hole outright to win the skin. Ties carry over."
         case .nassau:
-            return "Three bets in one: front nine, back nine, and overall."
+            return "Three challenges in one: front nine, back nine, and overall."
         case .closestToPin:
             return "Closest tee shot to the pin on designated par 3s."
         case .longDrive:
@@ -31,7 +31,7 @@ enum SideGameType: String, Codable, CaseIterable, Identifiable {
         case .dots:
             return "Earn or lose points for various achievements each hole."
         case .snake:
-            return "First to 3-putt holds the snake. Holder at the end pays."
+            return "First to 3-putt holds the snake. Holder at the end loses."
         case .wolf:
             return "Rotating wolf picks a partner or goes lone wolf each hole."
         case .rabbit:

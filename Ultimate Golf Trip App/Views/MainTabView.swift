@@ -81,7 +81,7 @@ struct MainTabView: View {
                 ScorecardView(viewModel: scorecardVM)
             }
 
-            Tab("Side Games", systemImage: "dollarsign.circle.fill", value: 3) {
+            Tab("Side Games", systemImage: "flag.checkered.circle.fill", value: 3) {
                 SideGamesView(viewModel: sideGameVM, metricsViewModel: metricsVM)
             }
 

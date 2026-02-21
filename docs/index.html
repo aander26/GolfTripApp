@@ -46,6 +46,12 @@
             margin-bottom: 16px;
             color: #1a7a4c;
         }
+        .card h3 {
+            font-size: 1.05rem;
+            margin-top: 18px;
+            margin-bottom: 6px;
+            color: #1d1d1f;
+        }
         .card p, .card li {
             font-size: 1rem;
             color: #444;
@@ -60,11 +66,21 @@
             position: relative;
         }
         .card ul li::before {
-            content: "•";
+            content: "\2022";
             color: #2ecc71;
             font-weight: bold;
             position: absolute;
             left: 8px;
+        }
+        .faq-q {
+            font-weight: 600;
+            color: #1d1d1f;
+            margin-top: 16px;
+            margin-bottom: 4px;
+        }
+        .faq-a {
+            color: #444;
+            margin-bottom: 12px;
         }
         .contact-link {
             display: inline-block;
@@ -102,8 +118,8 @@
                 <li>Live leaderboards with automatic handicap adjustments</li>
                 <li>Ryder Cup-style team match play competitions</li>
                 <li>12+ side games: Skins, Nassau, Wolf, Snake, and more</li>
-                <li>On-course & off-course stat tracking with betting</li>
-                <li>Settle Up — calculates who owes whom across every game</li>
+                <li>On-course & off-course stat tracking with custom challenges</li>
+                <li>Results summary — see who owes what across every game</li>
                 <li>War Room with weather, events, polls & Spotify playlist</li>
                 <li>Course database with auto-populated hole data</li>
                 <li>Share codes to invite your crew</li>
@@ -112,9 +128,54 @@
 
         <div class="card">
             <h2>Support</h2>
-            <p>Having trouble or have a question? We're here to help. Reach out and we'll get back to you as soon as possible.</p>
+            <p>Having trouble or have a question? We're here to help. Reach out via email and we'll get back to you within 48 hours.</p>
             <br>
-            <a class="contact-link" href="mailto:aander26@github.io">Contact Support</a>
+            <a class="contact-link" href="mailto:ultimategolftripapp@gmail.com">Email Support</a>
+            <p style="margin-top: 12px; font-size: 0.9rem; color: #888;">ultimategolftripapp@gmail.com</p>
+        </div>
+
+        <div class="card">
+            <h2>Frequently Asked Questions</h2>
+
+            <p class="faq-q">How do I create a trip?</p>
+            <p class="faq-a">Tap the + button on the main screen, enter your trip name, dates, and location. You can add players and courses after creating the trip.</p>
+
+            <p class="faq-q">How do I invite friends to my trip?</p>
+            <p class="faq-a">Go to the Trip tab and find your Share Code. Share this code with your friends — they can join by entering it when they open the app.</p>
+
+            <p class="faq-q">How does iCloud sync work?</p>
+            <p class="faq-a">If iCloud is enabled on your device, trip data syncs automatically across your Apple devices. All players in the same trip will see live updates as scores are entered.</p>
+
+            <p class="faq-q">What are Side Games?</p>
+            <p class="faq-a">Side Games are popular golf formats like Skins, Nassau, Wolf, and Snake that you can run alongside your regular round. Set point values and the app tracks everything automatically.</p>
+
+            <p class="faq-q">What are Challenges?</p>
+            <p class="faq-a">Challenges let you create custom competitions based on any tracked stat (e.g. Most Birdies, Fewest Putts). Set a commitment like "Bragging Rights" or "Loser buys dinner" and the app tracks standings and results.</p>
+
+            <p class="faq-q">How do I see who owes what?</p>
+            <p class="faq-a">Go to the Side Games tab and select the Results section. It shows a complete summary of all game and challenge outcomes, net balances, and the minimum number of settlements needed.</p>
+
+            <p class="faq-q">Can I use the app offline?</p>
+            <p class="faq-a">Yes. All scoring and trip data is stored locally on your device. Weather and Spotify features require an internet connection, but core scoring works offline.</p>
+
+            <p class="faq-q">How do I report a bug?</p>
+            <p class="faq-a">Email us at ultimategolftripapp@gmail.com with a description of the issue, your device model, and iOS version. Screenshots are helpful too.</p>
+        </div>
+
+        <div class="card">
+            <h2>Troubleshooting</h2>
+
+            <h3>Scores aren't syncing between devices</h3>
+            <p>Make sure iCloud is enabled in Settings > [your name] > iCloud. Both devices need to be signed into the same Apple ID. Try pulling down to refresh on the War Room screen.</p>
+
+            <h3>The app is running slowly</h3>
+            <p>Try closing and reopening the app. If the issue persists, make sure you're running the latest version of iOS and the app.</p>
+
+            <h3>Weather isn't loading</h3>
+            <p>Weather requires an internet connection and a course to be added to your trip. Check your connection and make sure at least one course is set up.</p>
+
+            <h3>Spotify playlist won't connect</h3>
+            <p>Make sure the Spotify app is installed on your device. Tap "Connect Spotify" in the War Room and follow the authorization prompts. If it fails, try logging out and back into Spotify first.</p>
         </div>
 
         <div class="card">
@@ -133,7 +194,7 @@
     </div>
 
     <div class="footer">
-        &copy; 2025 Ultimate Golf Trip App. All rights reserved.
+        &copy; 2026 Ultimate Golf Trip App. All rights reserved.
     </div>
 </body>
 </html>

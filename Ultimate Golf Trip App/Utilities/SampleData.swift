@@ -209,7 +209,7 @@ enum SampleData {
         )
     }()
 
-    // MARK: - Metrics & Side Bets Sample Data
+    // MARK: - Metrics & Challenges Sample Data
 
     static let sampleMetrics: [Metric] = {
         // Create new instances (don't use presets directly since those are templates)
@@ -260,7 +260,7 @@ enum SampleData {
                 metric: metrics[0],
                 betType: .highestTotal,
                 participants: p.map(\.id),
-                stake: "$20"
+                stake: "Bragging Rights"
             ),
             SideBet(
                 name: "Fewest Putts",

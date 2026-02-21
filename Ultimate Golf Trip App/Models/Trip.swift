@@ -236,7 +236,7 @@ final class Trip {
         }
     }
 
-    // MARK: - Metric / Side Bet Lookups
+    // MARK: - Metric / Challenge Lookups
 
     func metric(withId id: UUID) -> Metric? {
         metrics.first { $0.id == id }
@@ -282,7 +282,7 @@ final class Trip {
         sideBets.filter { $0.metric?.id == metricId }
     }
 
-    // MARK: - Metric / Side Bet Mutations
+    // MARK: - Metric / Challenge Mutations
 
     func addMetric(_ metric: Metric) {
         metric.trip = self
