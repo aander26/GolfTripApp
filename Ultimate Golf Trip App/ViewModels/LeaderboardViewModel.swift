@@ -1,6 +1,6 @@
 import Foundation
 
-@Observable
+@MainActor @Observable
 class LeaderboardViewModel {
     var appState: AppState
     var selectedRoundId: UUID?
@@ -62,7 +62,7 @@ class LeaderboardViewModel {
                 scoringRule: rule
             )
             result.roundLabel = "R\(index + 1): \(course.name)"
-            let hasContent = !result.individualMatches.isEmpty || !result.teamScores.isEmpty
+            let hasContent = !result.individualMatches.isEmpty || !result.ninesMatches.isEmpty || !result.teamScores.isEmpty || !result.teamNinesScores.isEmpty
             return hasContent ? result : nil
         }
     }

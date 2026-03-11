@@ -1,5 +1,8 @@
 import Foundation
 import SwiftData
+import os.log
+
+private let logger = Logger(subsystem: "com.alex-apps.golftrip", category: "Migration")
 
 /// Migrates trip data from UserDefaults JSON → SwiftData on first launch.
 ///
@@ -22,12 +25,12 @@ enum UserDefaultsMigrator {
     @MainActor
     static func migrateIfNeeded(context: ModelContext) {
         guard !isMigrated else { return }
-        defer { UserDefaults.standard.set(true, forKey: migrationKey) }
 
         guard let data = UserDefaults.standard.data(forKey: legacyTripsKey),
               let legacyTrips = try? JSONDecoder().decode([LegacyModels.Trip].self, from: data),
               !legacyTrips.isEmpty else {
-            // No legacy data — nothing to migrate
+            // No legacy data — mark complete and return
+            UserDefaults.standard.set(true, forKey: migrationKey)
             return
         }
 
@@ -36,10 +39,16 @@ enum UserDefaultsMigrator {
             context.insert(trip)
         }
 
-        try? context.save()
-
-        // Clean up old data
-        UserDefaults.standard.removeObject(forKey: legacyTripsKey)
+        do {
+            try context.save()
+            // Only mark complete and clean up legacy data after successful save
+            UserDefaults.standard.set(true, forKey: migrationKey)
+            UserDefaults.standard.removeObject(forKey: legacyTripsKey)
+        } catch {
+            // Save failed — do NOT mark migration complete or delete legacy data.
+            // Migration will retry on next launch.
+            logger.error("Migration save failed: \(error.localizedDescription)")
+        }
     }
 
     // MARK: - Conversion Helpers
@@ -111,27 +120,8 @@ enum UserDefaultsMigrator {
         // Polls
         trip.polls = legacy.polls.map { convertPoll($0) }
 
-        // Metrics
-        let metrics = legacy.metrics.map { convertMetric($0) }
-        trip.metrics = metrics
-
-        // Metric Entries
-        trip.metricEntries = legacy.metricEntries.map { legacyEntry in
-            let entry = convertMetricEntry(legacyEntry)
-            entry.metric = metrics.first(where: { $0.id == legacyEntry.metricId })
-            entry.member = players.first(where: { $0.id == legacyEntry.memberId })
-            if let roundId = legacyEntry.roundId {
-                entry.round = rounds.first(where: { $0.id == roundId })
-            }
-            return entry
-        }
-
         // Side Bets
-        trip.sideBets = legacy.sideBets.map { legacyBet in
-            let bet = convertSideBet(legacyBet)
-            bet.metric = metrics.first(where: { $0.id == legacyBet.metricId })
-            return bet
-        }
+        trip.sideBets = legacy.sideBets.map { convertSideBet($0) }
 
         return trip
     }
@@ -248,27 +238,6 @@ enum UserDefaultsMigrator {
             question: l.question,
             options: options,
             isActive: l.isActive
-        )
-    }
-
-    private static func convertMetric(_ l: LegacyModels.Metric) -> Metric {
-        Metric(
-            id: l.id,
-            name: l.name,
-            icon: l.icon,
-            unit: l.unit,
-            trackingType: TrackingType(rawValue: l.trackingType) ?? .perRound,
-            category: MetricCategory(rawValue: l.category) ?? .onCourse,
-            higherIsBetter: l.higherIsBetter
-        )
-    }
-
-    private static func convertMetricEntry(_ l: LegacyModels.MetricEntry) -> MetricEntry {
-        MetricEntry(
-            id: l.id,
-            value: l.value,
-            date: l.date,
-            notes: l.notes
         )
     }
 

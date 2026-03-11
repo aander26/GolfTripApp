@@ -20,6 +20,7 @@ final class SideGame {
 
     // Relationships
     var round: Round?
+    @Relationship(inverse: \Trip.sideGames)
     var trip: Trip?
 
     init(

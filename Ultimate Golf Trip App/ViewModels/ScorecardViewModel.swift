@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-@Observable
+@MainActor @Observable
 class ScorecardViewModel {
     var appState: AppState
 
@@ -11,6 +11,20 @@ class ScorecardViewModel {
     var selectedRoundId: UUID?
     var currentHole: Int = 1
     var showingRoundSetup = false
+    var showingRoundComplete = false
+    var showingPuttsRequiredAlert = false
+    var showingMissingStrokesAlert = false
+
+    // Team scoring options (configured during round setup)
+    var selectedTeamScoringFormat: TeamScoringFormat = .traditionalMatchPlay
+    var teamPointsPerWin: String = "1.0"
+    var teamPointsPerHalve: String = "0.5"
+    var teamPointsPerLoss: String = "0.0"
+    var teamPointsPerNineWin: String = "1.0"
+    var teamPointsPerNineHalve: String = "0.5"
+    var teamPointsPerOverallWin: String = "3.0"
+    var teamPointsPerOverallHalve: String = "1.5"
+    var teamUseNinesAndOverall: Bool = false
 
     init(appState: AppState) {
         self.appState = appState
@@ -31,6 +45,12 @@ class ScorecardViewModel {
         return currentTrip?.activeRound ?? currentTrip?.rounds.last { !$0.isComplete }
     }
 
+    /// Number of holes for the current round's course (defaults to 18, minimum 1)
+    var holeCount: Int {
+        let count = currentRound?.course?.holes.count ?? 18
+        return max(count, 1)
+    }
+
     // MARK: - Round Setup
 
     func startNewRound() {
@@ -39,6 +59,7 @@ class ScorecardViewModel {
               let course = trip.course(withId: courseId) else { return }
 
         let playerIds = Array(selectedPlayerIds)
+        guard !playerIds.isEmpty else { return }
 
         let round = Round(
             course: course,
@@ -65,6 +86,24 @@ class ScorecardViewModel {
         round.scorecards = scorecards
         round.trip = trip
         trip.rounds.append(round)
+
+        // Apply team scoring rule to the course if a team format is selected
+        if selectedFormat.requiresTeams {
+            let useNines = selectedTeamScoringFormat == .ninesAndOverall || teamUseNinesAndOverall
+            let rule = TeamScoringRule(
+                format: selectedTeamScoringFormat,
+                pointsPerWin: Double(teamPointsPerWin) ?? 1.0,
+                pointsPerHalve: Double(teamPointsPerHalve) ?? 0.5,
+                pointsPerLoss: Double(teamPointsPerLoss) ?? 0.0,
+                pointsPerNineWin: useNines ? (Double(teamPointsPerNineWin) ?? 1.0) : 1.0,
+                pointsPerNineHalve: useNines ? (Double(teamPointsPerNineHalve) ?? 0.5) : 0.5,
+                pointsPerOverallWin: useNines ? (Double(teamPointsPerOverallWin) ?? 3.0) : 3.0,
+                pointsPerOverallHalve: useNines ? (Double(teamPointsPerOverallHalve) ?? 1.5) : 1.5,
+                useNinesAndOverall: teamUseNinesAndOverall
+            )
+            course.teamScoringRule = rule
+        }
+
         appState.saveContext()
         currentHole = 1
         showingRoundSetup = false
@@ -73,6 +112,7 @@ class ScorecardViewModel {
     // MARK: - Score Entry
 
     func updateScore(roundId: UUID, playerId: UUID, holeNumber: Int, strokes: Int, putts: Int = 0) {
+        guard strokes >= 0 else { return }
         guard let trip = currentTrip,
               let round = trip.rounds.first(where: { $0.id == roundId }),
               let card = round.scorecards.first(where: { $0.player?.id == playerId }),
@@ -94,22 +134,12 @@ class ScorecardViewModel {
             strokeMap: strokeMap
         )
 
-        // Check if round is complete
-        let allComplete = round.scorecards.allSatisfy { sc in
-            sc.holeScores.allSatisfy { $0.isCompleted }
-        }
-        if allComplete {
-            round.isComplete = true
-            for sc in round.scorecards {
-                sc.isComplete = true
-            }
-        }
-
         appState.saveContext()
     }
 
     func nextHole() {
-        if currentHole < 18 {
+        guard currentHole < holeCount else { return }
+        if validateCurrentHole() {
             currentHole += 1
         }
     }
@@ -121,7 +151,64 @@ class ScorecardViewModel {
     }
 
     func goToHole(_ hole: Int) {
-        currentHole = max(1, min(18, hole))
+        let target = max(1, min(holeCount, hole))
+        // Only validate when moving forward
+        if target > currentHole {
+            guard validateCurrentHole() else { return }
+        }
+        currentHole = target
+    }
+
+    // MARK: - Challenge-Based Validation
+
+    /// Whether any active challenge for the current round requires putts data.
+    var puttsRequiredForCurrentRound: Bool {
+        guard let round = currentRound,
+              let trip = currentTrip else { return false }
+        return trip.activeSideBets.contains { bet in
+            bet.round?.id == round.id && bet.requiresPuttsData
+        }
+    }
+
+    /// Names of active challenges requiring putts for display in the alert.
+    var puttsRequiredChallengeNames: [String] {
+        guard let round = currentRound,
+              let trip = currentTrip else { return [] }
+        return trip.activeSideBets
+            .filter { $0.round?.id == round.id && $0.requiresPuttsData }
+            .map(\.name)
+    }
+
+    /// Validates the current hole's data before allowing navigation forward.
+    /// Returns true if OK to proceed, false if validation failed (alert shown).
+    private func validateCurrentHole() -> Bool {
+        guard let round = currentRound else { return true }
+
+        // Check if any player is missing strokes for the current hole
+        let missingStrokes = round.scorecards.contains { card in
+            guard let score = card.score(forHole: currentHole) else { return true }
+            return score.strokes == 0
+        }
+
+        if missingStrokes {
+            showingMissingStrokesAlert = true
+            return false
+        }
+
+        // Check if any active challenge requires putts
+        if puttsRequiredForCurrentRound {
+            let needsPutts = round.scorecards.contains { card in
+                guard let score = card.score(forHole: currentHole) else { return false }
+                return score.strokes > 0 && score.putts == 0
+            }
+
+            if needsPutts {
+                showingPuttsRequiredAlert = true
+                return false
+            }
+        }
+
+        return true
     }
 
     // MARK: - Round Completion
@@ -132,8 +219,18 @@ class ScorecardViewModel {
 
         round.isComplete = true
         for sc in round.scorecards {
-            sc.isComplete = true
+            // Only mark complete if the player actually has scores entered
+            if sc.holesCompleted > 0 {
+                sc.isComplete = true
+            }
         }
+
+        // Auto-settle any active round-based challenges tied to this round
+        for bet in trip.activeSideBets where bet.isRoundBased && bet.round?.id == roundId {
+            let winnerId = ChallengesViewModel.determineRoundBasedWinner(for: bet, round: round)
+            trip.completeSideBet(id: bet.id, winnerId: winnerId)
+        }
+
         appState.saveContext()
     }
 
@@ -164,5 +261,14 @@ class ScorecardViewModel {
         selectedCourseId = nil
         selectedFormat = .strokePlay
         selectedPlayerIds = []
+        selectedTeamScoringFormat = .traditionalMatchPlay
+        teamPointsPerWin = "1.0"
+        teamPointsPerHalve = "0.5"
+        teamPointsPerLoss = "0.0"
+        teamPointsPerNineWin = "1.0"
+        teamPointsPerNineHalve = "0.5"
+        teamPointsPerOverallWin = "3.0"
+        teamPointsPerOverallHalve = "1.5"
+        teamUseNinesAndOverall = false
     }
 }

@@ -28,6 +28,7 @@ struct HoleByHoleScoringView: View {
                             player: player,
                             holeNumber: viewModel.currentHole,
                             score: viewModel.scoreForPlayer(player.id, roundId: round.id, holeNumber: viewModel.currentHole),
+                            puttsRequired: viewModel.puttsRequiredForCurrentRound,
                             onScoreChanged: { strokes, putts in
                                 viewModel.updateScore(
                                     roundId: round.id,
@@ -48,6 +49,24 @@ struct HoleByHoleScoringView: View {
 
             // Navigation Buttons
             navigationBar
+        }
+        .sheet(isPresented: $viewModel.showingRoundComplete) {
+            RoundCompleteSheet(viewModel: viewModel, round: round, course: course, players: players)
+        }
+        .alert("Scores Missing", isPresented: $viewModel.showingMissingStrokesAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("Please enter strokes for all players before moving to the next hole.")
+        }
+        .alert("Putts Required", isPresented: $viewModel.showingPuttsRequiredAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            let names = viewModel.puttsRequiredChallengeNames
+            if names.count == 1 {
+                Text("Please enter putts for all players. This data is required by the \"\(names[0])\" challenge.")
+            } else {
+                Text("Please enter putts for all players. This data is required by active challenges.")
+            }
         }
     }
 
@@ -78,7 +97,7 @@ struct HoleByHoleScoringView: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .accessibilityLabel("Hole \(viewModel.currentHole) of 18")
+            .accessibilityLabel("Hole \(viewModel.currentHole) of \(course.holes.count)")
 
             Spacer()
 
@@ -89,7 +108,7 @@ struct HoleByHoleScoringView: View {
                     .font(.title3)
                     .fontWeight(.semibold)
             }
-            .disabled(viewModel.currentHole >= 18)
+            .disabled(viewModel.currentHole >= course.holes.count)
             .accessibilityLabel("Next hole")
         }
         .padding(.horizontal, 24)
@@ -174,7 +193,7 @@ struct HoleByHoleScoringView: View {
             // Hole selector
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    ForEach(1...18, id: \.self) { hole in
+                    ForEach(Array(1...max(course.holes.count, 1)), id: \.self) { hole in
                         Button {
                             viewModel.goToHole(hole)
                         } label: {
@@ -205,6 +224,7 @@ struct PlayerScoreCard: View {
     let player: Player
     let holeNumber: Int
     let score: HoleScore?
+    var puttsRequired: Bool = false
     let onScoreChanged: (Int, Int) -> Void
 
     @State private var strokes: Int = 0
@@ -289,9 +309,16 @@ struct PlayerScoreCard: View {
                     .frame(height: 50)
 
                 VStack(spacing: 4) {
-                    Text("PUTTS")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 4) {
+                        Text("PUTTS")
+                            .font(.caption2)
+                            .foregroundStyle(puttsRequired && strokes > 0 && putts == 0 ? Theme.error : .secondary)
+                        if puttsRequired {
+                            Text("*")
+                                .font(.caption2)
+                                .foregroundStyle(Theme.error)
+                        }
+                    }
 
                     HStack(spacing: 16) {
                         Button {
@@ -309,17 +336,22 @@ struct PlayerScoreCard: View {
 
                         Text("\(putts)")
                             .font(.system(size: 36, weight: .bold))
+                            .foregroundStyle(puttsRequired && strokes > 0 && putts == 0 ? Theme.error : Theme.textPrimary)
                             .frame(minWidth: 50)
                             .accessibilityLabel("\(putts) putts")
 
                         Button {
-                            putts += 1
-                            onScoreChanged(strokes, putts)
+                            // Don't allow putts to exceed strokes
+                            if strokes == 0 || putts < strokes {
+                                putts += 1
+                                onScoreChanged(strokes, putts)
+                            }
                         } label: {
                             Image(systemName: "plus.circle.fill")
                                 .font(.title2)
-                                .foregroundStyle(Theme.primary)
+                                .foregroundStyle(strokes > 0 && putts >= strokes ? .secondary : Theme.primary)
                         }
+                        .disabled(strokes > 0 && putts >= strokes)
                         .accessibilityLabel("Increase putts")
                         .accessibilityHint("Current putts: \(putts)")
                     }
@@ -336,6 +368,114 @@ struct PlayerScoreCard: View {
     private func loadScore() {
         strokes = score?.strokes ?? 0
         putts = score?.putts ?? 0
+    }
+}
+
+// MARK: - Round Complete Sheet
+
+struct RoundCompleteSheet: View {
+    @Bindable var viewModel: ScorecardViewModel
+    let round: Round
+    let course: Course
+    let players: [Player]
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 24) {
+                // Header
+                VStack(spacing: 8) {
+                    Image(systemName: "flag.checkered")
+                        .font(.system(size: 48))
+                        .foregroundStyle(Theme.primary)
+
+                    Text("Round Complete!")
+                        .font(.title2)
+                        .fontWeight(.bold)
+
+                    Text(course.name)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.top, 20)
+
+                // Score Summary
+                VStack(spacing: 0) {
+                    ForEach(players) { player in
+                        if let card = round.scorecard(forPlayer: player.id) {
+                            HStack {
+                                Circle()
+                                    .fill(player.avatarColor.color)
+                                    .frame(width: 28, height: 28)
+                                    .overlay {
+                                        Text(player.initials)
+                                            .font(.system(size: 10))
+                                            .fontWeight(.bold)
+                                            .foregroundStyle(.white)
+                                    }
+
+                                Text(player.name)
+                                    .font(.body)
+
+                                Spacer()
+
+                                VStack(alignment: .trailing, spacing: 2) {
+                                    Text("Gross: \(card.totalGross)")
+                                        .font(.subheadline)
+                                    if card.totalNet != card.totalGross {
+                                        Text("Net: \(card.totalNet)")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .fontWeight(.semibold)
+                            }
+                            .padding(.vertical, 10)
+                            .padding(.horizontal)
+
+                            if player.id != players.last?.id {
+                                Divider()
+                                    .padding(.horizontal)
+                            }
+                        }
+                    }
+                }
+                .background(Theme.cardBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .padding(.horizontal)
+
+                Spacer()
+
+                // Actions
+                VStack(spacing: 12) {
+                    Button {
+                        viewModel.completeRound(round.id)
+                        viewModel.selectedRoundId = nil
+                        dismiss()
+                    } label: {
+                        Text("End Round")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Theme.primary)
+
+                    Button {
+                        dismiss()
+                    } label: {
+                        Text("Continue Editing Scores")
+                            .font(.subheadline)
+                    }
+                    .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal)
+                .padding(.bottom, 24)
+            }
+            .navigationTitle("Round Summary")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .presentationDetents([.medium, .large])
     }
 }
 

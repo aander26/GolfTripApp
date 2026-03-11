@@ -47,7 +47,7 @@ struct RoundSummaryView: View {
                         .fontWeight(.bold)
                         .frame(width: 60, alignment: .leading)
 
-                    ForEach(1...18, id: \.self) { hole in
+                    ForEach(Array(1...max(course.holes.count, 1)), id: \.self) { hole in
                         Text("\(hole)")
                             .font(.caption2)
                             .fontWeight(.bold)

@@ -14,6 +14,7 @@ final class Player {
 
     // Relationships
     var team: Team?
+    @Relationship(inverse: \Trip.players)
     var trip: Trip?
 
     init(
@@ -49,19 +50,23 @@ final class Player {
     }
 
     var initials: String {
-        let parts = name.split(separator: " ")
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return "?" }
+        let parts = trimmed.split(separator: " ")
         if parts.count >= 2 {
             return String(parts[0].prefix(1) + parts[1].prefix(1)).uppercased()
         }
-        return String(name.prefix(2)).uppercased()
+        return String(trimmed.prefix(2)).uppercased()
     }
 
     var formattedHandicap: String {
         if handicapIndex == 0 {
             return "SCR"
         }
-        let sign = handicapIndex > 0 ? "" : "+"
-        return "\(sign)\(String(format: "%.1f", handicapIndex))"
+        if handicapIndex > 0 {
+            return String(format: "%.1f", handicapIndex)
+        }
+        return "+\(String(format: "%.1f", abs(handicapIndex)))"
     }
 }
 

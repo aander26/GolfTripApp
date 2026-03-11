@@ -11,6 +11,7 @@ final class Team {
     // Relationships
     @Relationship(inverse: \Player.team)
     var players: [Player]
+    @Relationship(inverse: \Trip.teams)
     var trip: Trip?
 
     init(

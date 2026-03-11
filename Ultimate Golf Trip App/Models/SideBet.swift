@@ -1,7 +1,7 @@
 import Foundation
 import SwiftData
 
-/// A friendly challenge between trip participants based on a tracked metric.
+/// A friendly challenge between trip participants.
 /// (SwiftData class name kept as `SideBet` to preserve existing persistent stores.)
 @Model
 final class SideBet {
@@ -19,14 +19,30 @@ final class SideBet {
     /// Per-player entry amount (only used when `isPotBet` is true).
     var potAmount: Double
 
+    /// When true, this challenge uses net scoring (after handicap strokes).
+    var useNetScoring: Bool = false
+
+    /// When true, this challenge requires putts data to be entered on the scorecard.
+    var requiresPuttsData: Bool = false
+
+    /// For custom challenges: the metric being tracked (e.g., "Beers Drank").
+    var customMetricName: String = ""
+
+    /// For custom challenges: whether highest value wins (true) or lowest (false).
+    var customHighestWins: Bool = true
+
+    /// For custom challenges: manually entered values per participant, stored as JSON.
+    var customValuesRaw: String = "{}"
+
     // Relationships
-    var metric: Metric?
+    /// The specific round this challenge is scoped to (for round-based challenges).
+    var round: Round?
+    @Relationship(inverse: \Trip.sideBets)
     var trip: Trip?
 
     init(
         id: UUID = UUID(),
         name: String,
-        metric: Metric? = nil,
         betType: ChallengeType = .highestTotal,
         targetValue: Double? = nil,
         participants: [UUID] = [],
@@ -34,11 +50,13 @@ final class SideBet {
         status: ChallengeStatus = .active,
         winnerId: UUID? = nil,
         isPotBet: Bool = false,
-        potAmount: Double = 0
+        potAmount: Double = 0,
+        round: Round? = nil,
+        useNetScoring: Bool = false,
+        requiresPuttsData: Bool = false
     ) {
         self.id = id
         self.name = name
-        self.metric = metric
         self.betTypeRaw = betType.rawValue
         self.targetValue = targetValue
         self.participants = participants
@@ -47,6 +65,9 @@ final class SideBet {
         self.winnerId = winnerId
         self.isPotBet = isPotBet
         self.potAmount = potAmount
+        self.round = round
+        self.useNetScoring = useNetScoring
+        self.requiresPuttsData = requiresPuttsData
     }
 
     // MARK: - Computed Properties
@@ -66,9 +87,6 @@ final class SideBet {
         get { ChallengeStatus(rawValue: statusRaw) ?? .active }
         set { statusRaw = newValue.rawValue }
     }
-
-    /// Backward-compat
-    var metricId: UUID? { metric?.id }
 
     var isActive: Bool {
         status == .active
@@ -109,4 +127,48 @@ final class SideBet {
 
     /// Backward compatibility accessor
     var potDisplayText: String { poolDisplayText }
+
+    /// Whether this challenge is based on round scores rather than metric data.
+    var isRoundBased: Bool {
+        challengeType.isRoundBased
+    }
+
+    /// Display name for the associated round (if any).
+    var roundDisplayName: String? {
+        guard let round = round, let courseName = round.course?.name else { return nil }
+        return "\(courseName) — \(round.formattedDate)"
+    }
+
+    // MARK: - Custom Challenge Values
+
+    /// Decoded custom values dictionary.
+    var customValues: [UUID: Double] {
+        get {
+            guard let data = customValuesRaw.data(using: .utf8),
+                  let dict = try? JSONDecoder().decode([String: Double].self, from: data) else {
+                return [:]
+            }
+            return dict.reduce(into: [:]) { result, pair in
+                if let uuid = UUID(uuidString: pair.key) {
+                    result[uuid] = pair.value
+                }
+            }
+        }
+        set {
+            let stringDict = newValue.reduce(into: [String: Double]()) { result, pair in
+                result[pair.key.uuidString] = pair.value
+            }
+            if let data = try? JSONEncoder().encode(stringDict),
+               let json = String(data: data, encoding: .utf8) {
+                customValuesRaw = json
+            }
+        }
+    }
+
+    /// Update a single participant's custom value.
+    func updateCustomValue(for playerId: UUID, value: Double) {
+        var values = customValues
+        values[playerId] = value
+        customValues = values
+    }
 }

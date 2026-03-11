@@ -1,6 +1,9 @@
 import Foundation
 import CloudKit
 import SwiftUI
+import os.log
+
+private let ckLogger = Logger(subsystem: "com.alex-apps.golftrip", category: "CloudKit")
 
 actor CloudKitService {
     static let shared = CloudKitService()
@@ -14,8 +17,7 @@ actor CloudKitService {
         }
         return _container ?? CKContainer.default()
     }
-    private var privateDB: CKDatabase { container.privateCloudDatabase }
-    private var sharedDB: CKDatabase { container.sharedCloudDatabase }
+    private var publicDB: CKDatabase { container.publicCloudDatabase }
 
     private init() {
         // Intentionally empty — container is lazily created on first use
@@ -38,116 +40,137 @@ actor CloudKitService {
         }
     }
 
-    // MARK: - Zone Management
-
-    private func createZone(named zoneName: String) async throws -> CKRecordZone {
-        let zone = CKRecordZone(zoneName: zoneName)
-        let savedZone = try await privateDB.save(zone)
-        return savedZone
-    }
-
-    func tripZoneName(for tripId: UUID) -> String {
-        "Trip_\(tripId.uuidString)"
-    }
-
     // MARK: - Save Records
 
     func saveTrip(_ trip: Trip) async throws {
         try await pushFullTrip(trip)
     }
 
-    /// Push the trip record and ALL child arrays to CloudKit in one shot
+    /// Push the trip record and ALL child arrays to CloudKit public database.
+    /// All users in the trip can read/write these records.
     func pushFullTrip(_ trip: Trip) async throws {
-        let zoneName = tripZoneName(for: trip.id)
-        _ = try await createZone(named: zoneName)
-        let zoneID = CKRecordZone.ID(zoneName: zoneName)
+        ckLogger.info("☁️ pushFullTrip starting for '\(trip.name)' (id: \(trip.id.uuidString.prefix(8)))")
 
-        // Trip record
-        let record = tripToRecord(trip, zoneID: zoneID)
-        try await privateDB.save(record)
+        // Trip record — this one must succeed or we abort entirely
+        let record = tripToRecord(trip)
+        try await saveRecord(record, label: "Trip")
+
+        // Helper: push a batch of records, logging failures but never
+        // stopping the rest of the push. This prevents a missing record
+        // type (e.g. TravelStatus not yet in production schema) from
+        // blocking SideGames, SideBets, and the share-code index.
+        func pushBatch(_ records: [(CKRecord, String)]) async {
+            for (r, label) in records {
+                do {
+                    try await saveRecord(r, label: label)
+                } catch {
+                    ckLogger.error("  ⚠️ Skipped \(label): \(error.localizedDescription)")
+                }
+            }
+        }
 
         // Players
-        for player in trip.players {
-            let r = playerToRecord(player, tripId: trip.id, zoneID: zoneID)
-            try await privateDB.save(r)
-        }
+        await pushBatch(trip.players.map { (playerToRecord($0, tripId: trip.id), "Player(\($0.name))") })
 
         // Courses
-        for course in trip.courses {
-            let r = courseToRecord(course, tripId: trip.id, zoneID: zoneID)
-            try await privateDB.save(r)
-        }
+        await pushBatch(trip.courses.map { (courseToRecord($0, tripId: trip.id), "Course(\($0.name))") })
 
         // Teams
-        for team in trip.teams {
-            let r = teamToRecord(team, tripId: trip.id, zoneID: zoneID)
-            try await privateDB.save(r)
-        }
+        await pushBatch(trip.teams.map { (teamToRecord($0, tripId: trip.id), "Team(\($0.name))") })
 
         // Rounds + Scorecards
-        for round in trip.rounds {
-            let r = roundToRecord(round, tripId: trip.id, zoneID: zoneID)
-            try await privateDB.save(r)
-        }
+        await pushBatch(trip.rounds.map { (roundToRecord($0, tripId: trip.id), "Round(\($0.date))") })
 
         // War Room Events
-        for event in trip.warRoomEvents {
-            let r = warRoomEventToRecord(event, tripId: trip.id, zoneID: zoneID)
-            try await privateDB.save(r)
-        }
+        await pushBatch(trip.warRoomEvents.map { (warRoomEventToRecord($0, tripId: trip.id), "WarRoomEvent(\($0.title))") })
 
         // Travel Statuses
-        for status in trip.travelStatuses {
-            let r = travelStatusToRecord(status, tripId: trip.id, zoneID: zoneID)
-            try await privateDB.save(r)
-        }
+        await pushBatch(trip.travelStatuses.map { (travelStatusToRecord($0, tripId: trip.id), "TravelStatus") })
 
         // Polls
-        for poll in trip.polls {
-            let r = pollToRecord(poll, tripId: trip.id, zoneID: zoneID)
-            try await privateDB.save(r)
-        }
+        await pushBatch(trip.polls.map { (pollToRecord($0, tripId: trip.id), "Poll(\($0.question))") })
 
         // Side Games
-        for sideGame in trip.sideGames {
-            let r = sideGameToRecord(sideGame, tripId: trip.id, zoneID: zoneID)
-            try await privateDB.save(r)
-        }
-
-        // Metrics
-        for metric in trip.metrics {
-            let r = metricToRecord(metric, tripId: trip.id, zoneID: zoneID)
-            try await privateDB.save(r)
-        }
-
-        // Metric Entries
-        for entry in trip.metricEntries {
-            let r = metricEntryToRecord(entry, tripId: trip.id, zoneID: zoneID)
-            try await privateDB.save(r)
-        }
+        await pushBatch(trip.sideGames.map { (sideGameToRecord($0, tripId: trip.id), "SideGame") })
 
         // Side Bets
-        for bet in trip.sideBets {
-            let r = sideBetToRecord(bet, tripId: trip.id, zoneID: zoneID)
-            try await privateDB.save(r)
-        }
+        await pushBatch(trip.sideBets.map { (sideBetToRecord($0, tripId: trip.id), "SideBet(\($0.name))") })
 
         // Write share code index to public DB so others can join
-        try await saveTripIndex(trip: trip)
+        do {
+            try await saveTripIndex(trip: trip)
+        } catch {
+            ckLogger.error("  ⚠️ Skipped TripShareIndex: \(error.localizedDescription)")
+        }
+        ckLogger.info("☁️ pushFullTrip completed for '\(trip.name)'")
+    }
+
+    /// Save a single record with upsert behavior (insert OR update).
+    /// On first save, inserts the record. If it already exists on the server,
+    /// fetches the server copy (which has the correct changeTag), copies all
+    /// field values onto it, then saves the updated server record.
+    /// Retries up to 2 times on serverRecordChanged conflicts.
+    private func saveRecord(_ record: CKRecord, label: String, retryCount: Int = 0) async throws {
+        do {
+            try await publicDB.save(record)
+            ckLogger.info("  ✅ Saved \(label)")
+        } catch let ckError as CKError where ckError.code == .serverRecordChanged {
+            guard retryCount < 2 else {
+                ckLogger.error("  ❌ FAILED to save \(label) after \(retryCount + 1) retries: server record keeps changing")
+                throw ckError
+            }
+            // Record already exists — fetch server copy, update fields, re-save
+            ckLogger.info("  🔄 Record exists, fetching & updating \(label) (attempt \(retryCount + 1))...")
+            let serverRecord = try await publicDB.record(for: record.recordID)
+            for key in record.allKeys() {
+                serverRecord[key] = record[key]
+            }
+            try await saveRecord(serverRecord, label: label, retryCount: retryCount + 1)
+        } catch {
+            ckLogger.error("  ❌ FAILED to save \(label): \(error)")
+            throw error
+        }
+    }
+
+    /// Delete a record from CloudKit by its UUID. Silently succeeds if the record doesn't exist.
+    func deleteRecord(id: UUID) async {
+        let recordID = CKRecord.ID(recordName: id.uuidString)
+        do {
+            try await publicDB.deleteRecord(withID: recordID)
+            ckLogger.info("  🗑️ Deleted record \(id.uuidString.prefix(8))")
+        } catch let ckError as CKError where ckError.code == .unknownItem {
+            // Already deleted or never existed — that's fine
+            ckLogger.info("  🗑️ Record \(id.uuidString.prefix(8)) already gone")
+        } catch {
+            ckLogger.error("  ⚠️ Failed to delete \(id.uuidString.prefix(8)): \(error.localizedDescription)")
+        }
     }
 
     func saveScorecard(_ scorecard: Scorecard, tripId: UUID) async throws {
-        let zoneName = tripZoneName(for: tripId)
-        let zoneID = CKRecordZone.ID(zoneName: zoneName)
-        let record = scorecardToRecord(scorecard, zoneID: zoneID)
-        try await privateDB.save(record)
+        let record = scorecardToRecord(scorecard)
+        try await saveRecord(record, label: "Scorecard")
+        // Touch the Trip record so CKQuerySubscription fires and other devices get notified
+        await touchTripRecord(tripId: tripId)
     }
 
     func saveRound(_ round: Round, tripId: UUID) async throws {
-        let zoneName = tripZoneName(for: tripId)
-        let zoneID = CKRecordZone.ID(zoneName: zoneName)
-        let record = roundToRecord(round, tripId: tripId, zoneID: zoneID)
-        try await privateDB.save(record)
+        let record = roundToRecord(round, tripId: tripId)
+        try await saveRecord(record, label: "Round")
+        // Touch the Trip record so CKQuerySubscription fires and other devices get notified
+        await touchTripRecord(tripId: tripId)
+    }
+
+    /// Touch the Trip record to trigger CKQuerySubscription notifications on other devices.
+    /// Used after saving child records (scorecards, rounds) that don't update the Trip record directly.
+    private func touchTripRecord(tripId: UUID) async {
+        let recordID = CKRecord.ID(recordName: tripId.uuidString)
+        do {
+            let serverRecord = try await publicDB.record(for: recordID)
+            serverRecord["lastModified"] = Date() as CKRecordValue
+            try await publicDB.save(serverRecord)
+        } catch {
+            ckLogger.warning("  ⚠️ Could not touch Trip record for notification: \(error.localizedDescription)")
+        }
     }
 
     // MARK: - Fetch Records
@@ -157,7 +180,7 @@ actor CloudKitService {
         let query = CKQuery(recordType: "Trip", predicate: predicate)
         query.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: false)]
 
-        let (results, _) = try await privateDB.records(matching: query)
+        let (results, _) = try await publicDB.records(matching: query)
         return results.compactMap { _, result in
             guard case .success(let record) = result else { return nil }
             return recordToTrip(record)
@@ -165,200 +188,318 @@ actor CloudKitService {
     }
 
     func fetchTripData(tripId: UUID) async throws -> Trip? {
-        let zoneName = tripZoneName(for: tripId)
-        let zoneID = CKRecordZone.ID(zoneName: zoneName)
-        let recordID = CKRecord.ID(recordName: tripId.uuidString, zoneID: zoneID)
+        let recordID = CKRecord.ID(recordName: tripId.uuidString)
 
-        let record = try await privateDB.record(for: recordID)
+        let record = try await publicDB.record(for: recordID)
         guard let trip = recordToTrip(record) else { return nil }
 
-        // Fetch all related records
-        let players = try await fetchPlayers(tripId: tripId, zoneID: zoneID)
-        let courses = try await fetchCourses(tripId: tripId, zoneID: zoneID)
-        let teams = try await fetchTeams(tripId: tripId, zoneID: zoneID)
-        let rounds = try await fetchRounds(tripId: tripId, zoneID: zoneID)
-        let warRoomEvents = try await fetchWarRoomEvents(tripId: tripId, zoneID: zoneID)
-        let travelStatuses = try await fetchTravelStatuses(tripId: tripId, zoneID: zoneID)
-        let polls = try await fetchPolls(tripId: tripId, zoneID: zoneID)
-        let sideGames = try await fetchSideGames(tripId: tripId, zoneID: zoneID)
-        let metrics = try await fetchMetrics(tripId: tripId, zoneID: zoneID)
-        let metricEntries = try await fetchMetricEntries(tripId: tripId, zoneID: zoneID)
-        let sideBets = try await fetchSideBets(tripId: tripId, zoneID: zoneID)
+        // Fetch all related records (each returns model + raw CKRecord tuple).
+        // Each fetch is wrapped in do/catch so a missing record type in CloudKit
+        // (e.g. schema not yet deployed) won't block the entire trip from loading.
+        let playerResults = (try? await fetchPlayers(tripId: tripId)) ?? []
+        let courseResults = (try? await fetchCourses(tripId: tripId)) ?? []
+        let teamResults = (try? await fetchTeams(tripId: tripId)) ?? []
+        let roundResults = (try? await fetchRounds(tripId: tripId)) ?? []
+        let warRoomEventResults = (try? await fetchWarRoomEvents(tripId: tripId)) ?? []
+        let travelStatusResults = (try? await fetchTravelStatuses(tripId: tripId)) ?? []
+        let pollResults = (try? await fetchPolls(tripId: tripId)) ?? []
+        let sideGameResults = (try? await fetchSideGames(tripId: tripId)) ?? []
+        let sideBetResults = (try? await fetchSideBets(tripId: tripId)) ?? []
 
-        // Stitch relationships
-        for player in players { trip.players.append(player) }
-        for course in courses { trip.courses.append(course) }
-        for team in teams { trip.teams.append(team) }
+        // Extract models
+        let players = playerResults.map { $0.0 }
+        let courses = courseResults.map { $0.0 }
+        let teams = teamResults.map { $0.0 }
+        let rounds = roundResults.map { $0.0 }
+        let warRoomEvents = warRoomEventResults.map { $0.0 }
+        let travelStatuses = travelStatusResults.map { $0.0 }
+        let polls = pollResults.map { $0.0 }
+        let sideGames = sideGameResults.map { $0.0 }
+        let sideBets = sideBetResults.map { $0.0 }
+
+        // Build tombstone sets so we skip entities that were deleted on any device
+        let deletedPlayerIds = Set(trip.deletedPlayerIds)
+        let deletedCourseIds = Set(trip.deletedCourseIds)
+        let deletedTeamIds = Set(trip.deletedTeamIds)
+        let deletedSideGameIds = Set(trip.deletedSideGameIds)
+        let deletedSideBetIds = Set(trip.deletedSideBetIds)
+        let deletedWarRoomEventIds = Set(trip.deletedWarRoomEventIds)
+
+        // Append children to trip, filtering out tombstoned entities
+        for player in players where !deletedPlayerIds.contains(player.id.uuidString) {
+            trip.players.append(player)
+        }
+        for course in courses where !deletedCourseIds.contains(course.id.uuidString) {
+            trip.courses.append(course)
+        }
+        for team in teams where !deletedTeamIds.contains(team.id.uuidString) {
+            trip.teams.append(team)
+        }
         for round in rounds { trip.rounds.append(round) }
-        for event in warRoomEvents { trip.warRoomEvents.append(event) }
+        for event in warRoomEvents where !deletedWarRoomEventIds.contains(event.id.uuidString) {
+            trip.warRoomEvents.append(event)
+        }
         for status in travelStatuses { trip.travelStatuses.append(status) }
         for poll in polls { trip.polls.append(poll) }
-        for sideGame in sideGames { trip.sideGames.append(sideGame) }
-        for metric in metrics { trip.metrics.append(metric) }
-        for entry in metricEntries { trip.metricEntries.append(entry) }
-        for bet in sideBets { trip.sideBets.append(bet) }
+        for sideGame in sideGames where !deletedSideGameIds.contains(sideGame.id.uuidString) {
+            trip.sideGames.append(sideGame)
+        }
+        for bet in sideBets where !deletedSideBetIds.contains(bet.id.uuidString) {
+            trip.sideBets.append(bet)
+        }
+
+        // Build lookup dictionaries for stitching (use uniquingKeysWith to handle
+        // duplicate records that CloudKit can return due to eventual consistency)
+        let playerById = Dictionary(players.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
+        let courseById = Dictionary(courses.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
+        let teamById = Dictionary(teams.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
+        let roundById = Dictionary(rounds.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
+        // Stitch child relationships using foreign keys from raw CKRecords
+
+        // Player -> Team (via teamId stored in Player record)
+        for (player, ckRecord) in playerResults {
+            if let teamIdStr = ckRecord["teamId"] as? String,
+               !teamIdStr.isEmpty,
+               let teamId = UUID(uuidString: teamIdStr) {
+                player.team = teamById[teamId]
+            }
+        }
+
+        // Team -> Players (via playerIds stored in Team record)
+        for (team, ckRecord) in teamResults {
+            let playerIdStrings = ckRecord["playerIds"] as? [String] ?? []
+            for idStr in playerIdStrings {
+                if let pid = UUID(uuidString: idStr), let player = playerById[pid] {
+                    if !team.players.contains(where: { $0.id == player.id }) {
+                        team.players.append(player)
+                    }
+                }
+            }
+        }
+
+        // Round -> Course (via courseId stored in Round record)
+        // Round -> Scorecards (parsed from scorecardsData embedded JSON)
+        for (round, ckRecord) in roundResults {
+            if let courseIdStr = ckRecord["courseId"] as? String,
+               !courseIdStr.isEmpty,
+               let courseId = UUID(uuidString: courseIdStr) {
+                round.course = courseById[courseId]
+            }
+
+            // Parse embedded scorecardsData into Scorecard objects
+            if let scorecardsData = ckRecord["scorecardsData"] as? Data,
+               let scorecardDicts = try? JSONSerialization.jsonObject(with: scorecardsData) as? [[String: Any]] {
+                for dict in scorecardDicts {
+                    let cardIdStr = dict["id"] as? String ?? ""
+                    let cardId = UUID(uuidString: cardIdStr) ?? UUID()
+                    let playerIdStr = dict["playerId"] as? String ?? ""
+                    let courseHandicap = dict["courseHandicap"] as? Int ?? 0
+                    let isComplete = dict["isComplete"] as? Bool ?? false
+
+                    // Parse holeScores from the embedded JSON
+                    var holeScores: [HoleScore] = []
+                    if let holeScoresObj = dict["holeScores"] {
+                        if let holeScoresData = try? JSONSerialization.data(withJSONObject: holeScoresObj) {
+                            holeScores = (try? JSONDecoder().decode([HoleScore].self, from: holeScoresData)) ?? []
+                        }
+                    }
+
+                    let scorecard = Scorecard(
+                        id: cardId,
+                        round: round,
+                        player: UUID(uuidString: playerIdStr).flatMap { playerById[$0] },
+                        holeScores: holeScores,
+                        courseHandicap: courseHandicap,
+                        isComplete: isComplete
+                    )
+                    round.scorecards.append(scorecard)
+                }
+            }
+        }
+
+        // TravelStatus -> Player (via playerId stored in TravelStatus record)
+        for (status, ckRecord) in travelStatusResults {
+            if let playerIdStr = ckRecord["playerId"] as? String,
+               !playerIdStr.isEmpty,
+               let playerId = UUID(uuidString: playerIdStr) {
+                status.player = playerById[playerId]
+            }
+        }
+
+        // SideGame -> Round (via roundId stored in SideGame record)
+        for (sideGame, ckRecord) in sideGameResults {
+            if let roundIdStr = ckRecord["roundId"] as? String,
+               !roundIdStr.isEmpty,
+               let roundId = UUID(uuidString: roundIdStr) {
+                sideGame.round = roundById[roundId]
+            }
+        }
+
+        // SideBet -> Round (via roundId stored in SideBet record)
+        for (bet, ckRecord) in sideBetResults {
+            if let roundIdStr = ckRecord["roundId"] as? String,
+               !roundIdStr.isEmpty,
+               let roundId = UUID(uuidString: roundIdStr) {
+                bet.round = roundById[roundId]
+            }
+        }
 
         return trip
     }
 
-    private func fetchPlayers(tripId: UUID, zoneID: CKRecordZone.ID) async throws -> [Player] {
+    private func fetchPlayers(tripId: UUID) async throws -> [(Player, CKRecord)] {
         let predicate = NSPredicate(format: "tripId == %@", tripId.uuidString)
         let query = CKQuery(recordType: "Player", predicate: predicate)
 
-        let (results, _) = try await privateDB.records(matching: query, inZoneWith: zoneID)
+        let (results, _) = try await publicDB.records(matching: query)
         return results.compactMap { _, result in
-            guard case .success(let record) = result else { return nil }
-            return recordToPlayer(record)
+            guard case .success(let record) = result,
+                  let model = recordToPlayer(record) else { return nil }
+            return (model, record)
         }
     }
 
-    private func fetchCourses(tripId: UUID, zoneID: CKRecordZone.ID) async throws -> [Course] {
+    private func fetchCourses(tripId: UUID) async throws -> [(Course, CKRecord)] {
         let predicate = NSPredicate(format: "tripId == %@", tripId.uuidString)
         let query = CKQuery(recordType: "Course", predicate: predicate)
 
-        let (results, _) = try await privateDB.records(matching: query, inZoneWith: zoneID)
+        let (results, _) = try await publicDB.records(matching: query)
         return results.compactMap { _, result in
-            guard case .success(let record) = result else { return nil }
-            return recordToCourse(record)
+            guard case .success(let record) = result,
+                  let model = recordToCourse(record) else { return nil }
+            return (model, record)
         }
     }
 
-    private func fetchTeams(tripId: UUID, zoneID: CKRecordZone.ID) async throws -> [Team] {
+    private func fetchTeams(tripId: UUID) async throws -> [(Team, CKRecord)] {
         let predicate = NSPredicate(format: "tripId == %@", tripId.uuidString)
         let query = CKQuery(recordType: "Team", predicate: predicate)
 
-        let (results, _) = try await privateDB.records(matching: query, inZoneWith: zoneID)
+        let (results, _) = try await publicDB.records(matching: query)
         return results.compactMap { _, result in
-            guard case .success(let record) = result else { return nil }
-            return recordToTeam(record)
+            guard case .success(let record) = result,
+                  let model = recordToTeam(record) else { return nil }
+            return (model, record)
         }
     }
 
-    private func fetchRounds(tripId: UUID, zoneID: CKRecordZone.ID) async throws -> [Round] {
+    private func fetchRounds(tripId: UUID) async throws -> [(Round, CKRecord)] {
         let predicate = NSPredicate(format: "tripId == %@", tripId.uuidString)
         let query = CKQuery(recordType: "Round", predicate: predicate)
 
-        let (results, _) = try await privateDB.records(matching: query, inZoneWith: zoneID)
+        let (results, _) = try await publicDB.records(matching: query)
         return results.compactMap { _, result in
-            guard case .success(let record) = result else { return nil }
-            return recordToRound(record)
+            guard case .success(let record) = result,
+                  let model = recordToRound(record) else { return nil }
+            return (model, record)
         }
     }
 
-    private func fetchWarRoomEvents(tripId: UUID, zoneID: CKRecordZone.ID) async throws -> [WarRoomEvent] {
+    private func fetchWarRoomEvents(tripId: UUID) async throws -> [(WarRoomEvent, CKRecord)] {
         let predicate = NSPredicate(format: "tripId == %@", tripId.uuidString)
         let query = CKQuery(recordType: "WarRoomEvent", predicate: predicate)
 
-        let (results, _) = try await privateDB.records(matching: query, inZoneWith: zoneID)
+        let (results, _) = try await publicDB.records(matching: query)
         return results.compactMap { _, result in
-            guard case .success(let record) = result else { return nil }
-            return recordToWarRoomEvent(record)
+            guard case .success(let record) = result,
+                  let model = recordToWarRoomEvent(record) else { return nil }
+            return (model, record)
         }
     }
 
-    private func fetchTravelStatuses(tripId: UUID, zoneID: CKRecordZone.ID) async throws -> [TravelStatus] {
+    private func fetchTravelStatuses(tripId: UUID) async throws -> [(TravelStatus, CKRecord)] {
         let predicate = NSPredicate(format: "tripId == %@", tripId.uuidString)
         let query = CKQuery(recordType: "TravelStatus", predicate: predicate)
 
-        let (results, _) = try await privateDB.records(matching: query, inZoneWith: zoneID)
+        let (results, _) = try await publicDB.records(matching: query)
         return results.compactMap { _, result in
-            guard case .success(let record) = result else { return nil }
-            return recordToTravelStatus(record)
+            guard case .success(let record) = result,
+                  let model = recordToTravelStatus(record) else { return nil }
+            return (model, record)
         }
     }
 
-    private func fetchPolls(tripId: UUID, zoneID: CKRecordZone.ID) async throws -> [Poll] {
+    private func fetchPolls(tripId: UUID) async throws -> [(Poll, CKRecord)] {
         let predicate = NSPredicate(format: "tripId == %@", tripId.uuidString)
         let query = CKQuery(recordType: "Poll", predicate: predicate)
 
-        let (results, _) = try await privateDB.records(matching: query, inZoneWith: zoneID)
+        let (results, _) = try await publicDB.records(matching: query)
         return results.compactMap { _, result in
-            guard case .success(let record) = result else { return nil }
-            return recordToPoll(record)
+            guard case .success(let record) = result,
+                  let model = recordToPoll(record) else { return nil }
+            return (model, record)
         }
     }
 
-    private func fetchSideGames(tripId: UUID, zoneID: CKRecordZone.ID) async throws -> [SideGame] {
+    private func fetchSideGames(tripId: UUID) async throws -> [(SideGame, CKRecord)] {
         let predicate = NSPredicate(format: "tripId == %@", tripId.uuidString)
         let query = CKQuery(recordType: "SideGame", predicate: predicate)
 
-        let (results, _) = try await privateDB.records(matching: query, inZoneWith: zoneID)
+        let (results, _) = try await publicDB.records(matching: query)
         return results.compactMap { _, result in
-            guard case .success(let record) = result else { return nil }
-            return recordToSideGame(record)
+            guard case .success(let record) = result,
+                  let model = recordToSideGame(record) else { return nil }
+            return (model, record)
         }
     }
 
-    private func fetchMetrics(tripId: UUID, zoneID: CKRecordZone.ID) async throws -> [Metric] {
-        let predicate = NSPredicate(format: "tripId == %@", tripId.uuidString)
-        let query = CKQuery(recordType: "Metric", predicate: predicate)
-
-        let (results, _) = try await privateDB.records(matching: query, inZoneWith: zoneID)
-        return results.compactMap { _, result in
-            guard case .success(let record) = result else { return nil }
-            return recordToMetric(record)
-        }
-    }
-
-    private func fetchMetricEntries(tripId: UUID, zoneID: CKRecordZone.ID) async throws -> [MetricEntry] {
-        let predicate = NSPredicate(format: "tripId == %@", tripId.uuidString)
-        let query = CKQuery(recordType: "MetricEntry", predicate: predicate)
-
-        let (results, _) = try await privateDB.records(matching: query, inZoneWith: zoneID)
-        return results.compactMap { _, result in
-            guard case .success(let record) = result else { return nil }
-            return recordToMetricEntry(record)
-        }
-    }
-
-    private func fetchSideBets(tripId: UUID, zoneID: CKRecordZone.ID) async throws -> [SideBet] {
+    private func fetchSideBets(tripId: UUID) async throws -> [(SideBet, CKRecord)] {
         let predicate = NSPredicate(format: "tripId == %@", tripId.uuidString)
         let query = CKQuery(recordType: "SideBet", predicate: predicate)
 
-        let (results, _) = try await privateDB.records(matching: query, inZoneWith: zoneID)
+        let (results, _) = try await publicDB.records(matching: query)
         return results.compactMap { _, result in
-            guard case .success(let record) = result else { return nil }
-            return recordToSideBet(record)
+            guard case .success(let record) = result,
+                  let model = recordToSideBet(record) else { return nil }
+            return (model, record)
         }
-    }
-
-    // MARK: - Sharing
-
-    func createShare(for trip: Trip) async throws -> CKShare {
-        let zoneName = tripZoneName(for: trip.id)
-        let zoneID = CKRecordZone.ID(zoneName: zoneName)
-        let recordID = CKRecord.ID(recordName: trip.id.uuidString, zoneID: zoneID)
-
-        let record = try await privateDB.record(for: recordID)
-
-        let share = CKShare(rootRecord: record)
-        share[CKShare.SystemFieldKey.title] = trip.name as CKRecordValue
-        share.publicPermission = .readWrite
-
-        let modifyOp = CKModifyRecordsOperation(recordsToSave: [record, share])
-        modifyOp.qualityOfService = .userInitiated
-
-        _ = try await privateDB.modifyRecords(saving: [record, share], deleting: [])
-        return share
     }
 
     // MARK: - Share Code Lookup (Public DB)
 
-    /// Write a lightweight index record to the public database so others can find this trip by share code
+    /// Write a lightweight index record to the public database so others can find this trip by share code.
+    /// If the share code collides with another trip, regenerates up to 5 times.
     func saveTripIndex(trip: Trip) async throws {
-        let publicDB = container.publicCloudDatabase
+        // Verify this share code's index either doesn't exist or belongs to this trip
         let recordID = CKRecord.ID(recordName: "ShareIndex_\(trip.shareCode)")
+        do {
+            let existingRecord = try await publicDB.record(for: recordID)
+            let existingTripId = existingRecord["tripId"] as? String ?? ""
+            if existingTripId != trip.id.uuidString {
+                // Collision! Another trip has this code. Regenerate.
+                ckLogger.warning("  ⚠️ Share code collision detected for '\(trip.shareCode)' — regenerating")
+                let characters = Array("ABCDEFGHJKLMNPQRSTUVWXYZ23456789")
+                trip.shareCode = String((0..<6).map { _ in characters[Int.random(in: 0..<characters.count)] })
+                // Retry with new code (recursive but bounded by probability)
+                try await saveTripIndex(trip: trip)
+                return
+            }
+        } catch let ckError as CKError where ckError.code == .unknownItem {
+            // No existing record — safe to proceed
+        }
+
         let record = CKRecord(recordType: "TripShareIndex", recordID: recordID)
         record["shareCode"] = trip.shareCode as CKRecordValue
         record["tripId"] = trip.id.uuidString as CKRecordValue
         record["tripName"] = trip.name as CKRecordValue
         record["ownerProfileId"] = (trip.ownerProfileId?.uuidString ?? "") as CKRecordValue
-        try await publicDB.save(record)
+        try await saveRecord(record, label: "TripShareIndex")
+    }
+
+    /// Check if a share code is already in use
+    func isShareCodeTaken(_ code: String) async -> Bool {
+        let predicate = NSPredicate(format: "shareCode == %@", code.uppercased())
+        let query = CKQuery(recordType: "TripShareIndex", predicate: predicate)
+        do {
+            let (results, _) = try await publicDB.records(matching: query)
+            return !results.isEmpty
+        } catch {
+            return false // Assume not taken if we can't check
+        }
     }
 
     /// Look up a trip by share code from the public database, then fetch full trip data
     func fetchTripByShareCode(_ code: String) async throws -> Trip? {
-        let publicDB = container.publicCloudDatabase
         let predicate = NSPredicate(format: "shareCode == %@", code.uppercased())
         let query = CKQuery(recordType: "TripShareIndex", predicate: predicate)
 
@@ -370,27 +511,51 @@ actor CloudKitService {
             return nil
         }
 
-        // Fetch the full trip data from the private database
+        // Fetch the full trip data from the public database
         return try await fetchTripData(tripId: tripId)
     }
 
     // MARK: - Subscriptions
 
-    func subscribeToChanges(tripId: UUID) async throws {
-        _ = tripZoneName(for: tripId)
+    /// Subscribe to changes for a specific trip in the public database.
+    /// Uses CKQuerySubscription to watch for record updates matching the tripId.
+    func subscribeToTripChanges(tripId: UUID) async throws {
+        let subscriptionID = "trip_\(tripId.uuidString)"
 
-        let subscription = CKDatabaseSubscription(subscriptionID: "trip_\(tripId.uuidString)")
+        // Check if already subscribed
+        do {
+            _ = try await publicDB.subscription(for: subscriptionID)
+            return // Already subscribed
+        } catch {
+            // Not subscribed yet — continue
+        }
+
+        // Subscribe to changes on Trip records matching this tripId.
+        // Every push updates the Trip record, so this catches all sync activity.
+        let predicate = NSPredicate(format: "tripId == %@", tripId.uuidString)
+        let subscription = CKQuerySubscription(
+            recordType: "Trip",
+            predicate: predicate,
+            subscriptionID: subscriptionID,
+            options: [.firesOnRecordCreation, .firesOnRecordUpdate]
+        )
         let notificationInfo = CKSubscription.NotificationInfo()
         notificationInfo.shouldSendContentAvailable = true
         subscription.notificationInfo = notificationInfo
 
-        try await privateDB.save(subscription)
+        try await publicDB.save(subscription)
     }
 
-    // MARK: - Record Conversion Helpers
+    /// Remove subscription for a trip (e.g. when leaving)
+    func unsubscribeFromTripChanges(tripId: UUID) async throws {
+        let subscriptionID = "trip_\(tripId.uuidString)"
+        try await publicDB.deleteSubscription(withID: subscriptionID)
+    }
 
-    private func tripToRecord(_ trip: Trip, zoneID: CKRecordZone.ID) -> CKRecord {
-        let recordID = CKRecord.ID(recordName: trip.id.uuidString, zoneID: zoneID)
+    // MARK: - Record Conversion Helpers (Public DB — default zone)
+
+    private func tripToRecord(_ trip: Trip) -> CKRecord {
+        let recordID = CKRecord.ID(recordName: trip.id.uuidString)
         let record = CKRecord(recordType: "Trip", recordID: recordID)
         record["name"] = trip.name as CKRecordValue
         record["startDate"] = trip.startDate as CKRecordValue
@@ -401,11 +566,34 @@ actor CloudKitService {
         record["pointsPerMatchWin"] = trip.pointsPerMatchWin as CKRecordValue
         record["pointsPerMatchHalve"] = trip.pointsPerMatchHalve as CKRecordValue
         record["pointsPerMatchLoss"] = trip.pointsPerMatchLoss as CKRecordValue
+        record["tripId"] = trip.id.uuidString as CKRecordValue
+        record["schemaVersion"] = trip.schemaVersion as CKRecordValue
+        // CloudKit cannot create a new List field from an empty array (it can't infer
+        // the element type). Only write these when non-empty; once the field exists in
+        // the schema, empty arrays work fine on subsequent saves.
+        if !trip.deletedPlayerIds.isEmpty {
+            record["deletedPlayerIds"] = trip.deletedPlayerIds as CKRecordValue
+        }
+        if !trip.deletedCourseIds.isEmpty {
+            record["deletedCourseIds"] = trip.deletedCourseIds as CKRecordValue
+        }
+        if !trip.deletedTeamIds.isEmpty {
+            record["deletedTeamIds"] = trip.deletedTeamIds as CKRecordValue
+        }
+        if !trip.deletedSideGameIds.isEmpty {
+            record["deletedSideGameIds"] = trip.deletedSideGameIds as CKRecordValue
+        }
+        if !trip.deletedSideBetIds.isEmpty {
+            record["deletedSideBetIds"] = trip.deletedSideBetIds as CKRecordValue
+        }
+        if !trip.deletedWarRoomEventIds.isEmpty {
+            record["deletedWarRoomEventIds"] = trip.deletedWarRoomEventIds as CKRecordValue
+        }
         return record
     }
 
-    private func playerToRecord(_ player: Player, tripId: UUID, zoneID: CKRecordZone.ID) -> CKRecord {
-        let recordID = CKRecord.ID(recordName: player.id.uuidString, zoneID: zoneID)
+    private func playerToRecord(_ player: Player, tripId: UUID) -> CKRecord {
+        let recordID = CKRecord.ID(recordName: player.id.uuidString)
         let record = CKRecord(recordType: "Player", recordID: recordID)
         record["tripId"] = tripId.uuidString as CKRecordValue
         record["name"] = player.name as CKRecordValue
@@ -416,8 +604,8 @@ actor CloudKitService {
         return record
     }
 
-    private func courseToRecord(_ course: Course, tripId: UUID, zoneID: CKRecordZone.ID) -> CKRecord {
-        let recordID = CKRecord.ID(recordName: course.id.uuidString, zoneID: zoneID)
+    private func courseToRecord(_ course: Course, tripId: UUID) -> CKRecord {
+        let recordID = CKRecord.ID(recordName: course.id.uuidString)
         let record = CKRecord(recordType: "Course", recordID: recordID)
         record["tripId"] = tripId.uuidString as CKRecordValue
         record["name"] = course.name as CKRecordValue
@@ -425,8 +613,14 @@ actor CloudKitService {
         record["courseRating"] = course.courseRating as CKRecordValue
         record["city"] = course.city as CKRecordValue
         record["state"] = course.state as CKRecordValue
+        if let lat = course.latitude { record["latitude"] = lat as CKRecordValue }
+        if let lng = course.longitude { record["longitude"] = lng as CKRecordValue }
+        record["selectedTeeBoxName"] = (course.selectedTeeBoxName ?? "") as CKRecordValue
         if let holesData = try? JSONEncoder().encode(course.holes) {
             record["holesData"] = holesData as CKRecordValue
+        }
+        if !course.teeBoxes.isEmpty, let teeData = try? JSONEncoder().encode(course.teeBoxes) {
+            record["teeBoxesData"] = teeData as CKRecordValue
         }
         if let rule = course.teamScoringRule,
            let ruleData = try? JSONEncoder().encode(rule) {
@@ -435,8 +629,8 @@ actor CloudKitService {
         return record
     }
 
-    private func teamToRecord(_ team: Team, tripId: UUID, zoneID: CKRecordZone.ID) -> CKRecord {
-        let recordID = CKRecord.ID(recordName: team.id.uuidString, zoneID: zoneID)
+    private func teamToRecord(_ team: Team, tripId: UUID) -> CKRecord {
+        let recordID = CKRecord.ID(recordName: team.id.uuidString)
         let record = CKRecord(recordType: "Team", recordID: recordID)
         record["tripId"] = tripId.uuidString as CKRecordValue
         record["name"] = team.name as CKRecordValue
@@ -445,8 +639,8 @@ actor CloudKitService {
         return record
     }
 
-    private func roundToRecord(_ round: Round, tripId: UUID, zoneID: CKRecordZone.ID) -> CKRecord {
-        let recordID = CKRecord.ID(recordName: round.id.uuidString, zoneID: zoneID)
+    private func roundToRecord(_ round: Round, tripId: UUID) -> CKRecord {
+        let recordID = CKRecord.ID(recordName: round.id.uuidString)
         let record = CKRecord(recordType: "Round", recordID: recordID)
         record["tripId"] = tripId.uuidString as CKRecordValue
         record["courseId"] = (round.course?.id.uuidString ?? "") as CKRecordValue
@@ -475,8 +669,8 @@ actor CloudKitService {
         return record
     }
 
-    private func scorecardToRecord(_ scorecard: Scorecard, zoneID: CKRecordZone.ID) -> CKRecord {
-        let recordID = CKRecord.ID(recordName: scorecard.id.uuidString, zoneID: zoneID)
+    private func scorecardToRecord(_ scorecard: Scorecard) -> CKRecord {
+        let recordID = CKRecord.ID(recordName: scorecard.id.uuidString)
         let record = CKRecord(recordType: "Scorecard", recordID: recordID)
         record["roundId"] = (scorecard.round?.id.uuidString ?? "") as CKRecordValue
         record["playerId"] = (scorecard.player?.id.uuidString ?? "") as CKRecordValue
@@ -488,8 +682,8 @@ actor CloudKitService {
         return record
     }
 
-    private func warRoomEventToRecord(_ event: WarRoomEvent, tripId: UUID, zoneID: CKRecordZone.ID) -> CKRecord {
-        let recordID = CKRecord.ID(recordName: event.id.uuidString, zoneID: zoneID)
+    private func warRoomEventToRecord(_ event: WarRoomEvent, tripId: UUID) -> CKRecord {
+        let recordID = CKRecord.ID(recordName: event.id.uuidString)
         let record = CKRecord(recordType: "WarRoomEvent", recordID: recordID)
         record["tripId"] = tripId.uuidString as CKRecordValue
         record["typeRaw"] = event.typeRaw as CKRecordValue
@@ -507,8 +701,8 @@ actor CloudKitService {
         return record
     }
 
-    private func travelStatusToRecord(_ status: TravelStatus, tripId: UUID, zoneID: CKRecordZone.ID) -> CKRecord {
-        let recordID = CKRecord.ID(recordName: status.id.uuidString, zoneID: zoneID)
+    private func travelStatusToRecord(_ status: TravelStatus, tripId: UUID) -> CKRecord {
+        let recordID = CKRecord.ID(recordName: status.id.uuidString)
         let record = CKRecord(recordType: "TravelStatus", recordID: recordID)
         record["tripId"] = tripId.uuidString as CKRecordValue
         record["statusRaw"] = status.statusRaw as CKRecordValue
@@ -521,8 +715,8 @@ actor CloudKitService {
         return record
     }
 
-    private func pollToRecord(_ poll: Poll, tripId: UUID, zoneID: CKRecordZone.ID) -> CKRecord {
-        let recordID = CKRecord.ID(recordName: poll.id.uuidString, zoneID: zoneID)
+    private func pollToRecord(_ poll: Poll, tripId: UUID) -> CKRecord {
+        let recordID = CKRecord.ID(recordName: poll.id.uuidString)
         let record = CKRecord(recordType: "Poll", recordID: recordID)
         record["tripId"] = tripId.uuidString as CKRecordValue
         record["question"] = poll.question as CKRecordValue
@@ -536,8 +730,8 @@ actor CloudKitService {
         return record
     }
 
-    private func sideGameToRecord(_ sideGame: SideGame, tripId: UUID, zoneID: CKRecordZone.ID) -> CKRecord {
-        let recordID = CKRecord.ID(recordName: sideGame.id.uuidString, zoneID: zoneID)
+    private func sideGameToRecord(_ sideGame: SideGame, tripId: UUID) -> CKRecord {
+        let recordID = CKRecord.ID(recordName: sideGame.id.uuidString)
         let record = CKRecord(recordType: "SideGame", recordID: recordID)
         record["tripId"] = tripId.uuidString as CKRecordValue
         record["typeRaw"] = sideGame.typeRaw as CKRecordValue
@@ -547,40 +741,16 @@ actor CloudKitService {
         record["isActive"] = (sideGame.isActive ? 1 : 0) as CKRecordValue
         record["designatedHoles"] = sideGame.designatedHoles as CKRecordValue
         record["roundId"] = (sideGame.round?.id.uuidString ?? "") as CKRecordValue
+        record["isPotGame"] = (sideGame.isPotGame ? 1 : 0) as CKRecordValue
+        record["potWinnerId"] = (sideGame.potWinnerId?.uuidString ?? "") as CKRecordValue
         if let resultsData = try? JSONEncoder().encode(sideGame.results) {
             record["resultsData"] = resultsData as CKRecordValue
         }
         return record
     }
 
-    private func metricToRecord(_ metric: Metric, tripId: UUID, zoneID: CKRecordZone.ID) -> CKRecord {
-        let recordID = CKRecord.ID(recordName: metric.id.uuidString, zoneID: zoneID)
-        let record = CKRecord(recordType: "Metric", recordID: recordID)
-        record["tripId"] = tripId.uuidString as CKRecordValue
-        record["name"] = metric.name as CKRecordValue
-        record["icon"] = metric.icon as CKRecordValue
-        record["unit"] = metric.unit as CKRecordValue
-        record["trackingTypeRaw"] = metric.trackingTypeRaw as CKRecordValue
-        record["categoryRaw"] = metric.categoryRaw as CKRecordValue
-        record["higherIsBetter"] = (metric.higherIsBetter ? 1 : 0) as CKRecordValue
-        return record
-    }
-
-    private func metricEntryToRecord(_ entry: MetricEntry, tripId: UUID, zoneID: CKRecordZone.ID) -> CKRecord {
-        let recordID = CKRecord.ID(recordName: entry.id.uuidString, zoneID: zoneID)
-        let record = CKRecord(recordType: "MetricEntry", recordID: recordID)
-        record["tripId"] = tripId.uuidString as CKRecordValue
-        record["value"] = entry.value as CKRecordValue
-        record["date"] = entry.date as CKRecordValue
-        record["notes"] = entry.notes as CKRecordValue
-        record["metricId"] = (entry.metric?.id.uuidString ?? "") as CKRecordValue
-        record["memberId"] = (entry.member?.id.uuidString ?? "") as CKRecordValue
-        record["roundId"] = (entry.round?.id.uuidString ?? "") as CKRecordValue
-        return record
-    }
-
-    private func sideBetToRecord(_ bet: SideBet, tripId: UUID, zoneID: CKRecordZone.ID) -> CKRecord {
-        let recordID = CKRecord.ID(recordName: bet.id.uuidString, zoneID: zoneID)
+    private func sideBetToRecord(_ bet: SideBet, tripId: UUID) -> CKRecord {
+        let recordID = CKRecord.ID(recordName: bet.id.uuidString)
         let record = CKRecord(recordType: "SideBet", recordID: recordID)
         record["tripId"] = tripId.uuidString as CKRecordValue
         record["name"] = bet.name as CKRecordValue
@@ -592,7 +762,16 @@ actor CloudKitService {
         record["stake"] = bet.stake as CKRecordValue
         record["statusRaw"] = bet.statusRaw as CKRecordValue
         record["winnerId"] = (bet.winnerId?.uuidString ?? "") as CKRecordValue
-        record["metricId"] = (bet.metric?.id.uuidString ?? "") as CKRecordValue
+        record["isPotBet"] = (bet.isPotBet ? 1 : 0) as CKRecordValue
+        record["potAmount"] = bet.potAmount as CKRecordValue
+        record["useNetScoring"] = (bet.useNetScoring ? 1 : 0) as CKRecordValue
+        record["requiresPuttsData"] = (bet.requiresPuttsData ? 1 : 0) as CKRecordValue
+        record["customMetricName"] = bet.customMetricName as CKRecordValue
+        record["customHighestWins"] = (bet.customHighestWins ? 1 : 0) as CKRecordValue
+        record["customValuesRaw"] = bet.customValuesRaw as CKRecordValue
+        if let roundId = bet.round?.id {
+            record["roundId"] = roundId.uuidString as CKRecordValue
+        }
         return record
     }
 
@@ -605,7 +784,7 @@ actor CloudKitService {
 
         let ownerProfileId: UUID? = (record["ownerProfileId"] as? String).flatMap { UUID(uuidString: $0) }
 
-        return Trip(
+        let trip = Trip(
             id: UUID(uuidString: record.recordID.recordName) ?? UUID(),
             name: name,
             startDate: startDate,
@@ -617,6 +796,14 @@ actor CloudKitService {
             pointsPerMatchHalve: record["pointsPerMatchHalve"] as? Double ?? 0.5,
             pointsPerMatchLoss: record["pointsPerMatchLoss"] as? Double ?? 0.0
         )
+        trip.schemaVersion = record["schemaVersion"] as? Int ?? 1
+        trip.deletedPlayerIds = record["deletedPlayerIds"] as? [String] ?? []
+        trip.deletedCourseIds = record["deletedCourseIds"] as? [String] ?? []
+        trip.deletedTeamIds = record["deletedTeamIds"] as? [String] ?? []
+        trip.deletedSideGameIds = record["deletedSideGameIds"] as? [String] ?? []
+        trip.deletedSideBetIds = record["deletedSideBetIds"] as? [String] ?? []
+        trip.deletedWarRoomEventIds = record["deletedWarRoomEventIds"] as? [String] ?? []
+        return trip
     }
 
     private func recordToPlayer(_ record: CKRecord) -> Player? {
@@ -641,11 +828,17 @@ actor CloudKitService {
             holes = (try? JSONDecoder().decode([Hole].self, from: holesData)) ?? []
         }
 
+        var teeBoxes: [TeeBox] = []
+        if let teeData = record["teeBoxesData"] as? Data {
+            teeBoxes = (try? JSONDecoder().decode([TeeBox].self, from: teeData)) ?? []
+        }
+
         var teamScoringRule: TeamScoringRule?
         if let ruleData = record["teamScoringRuleData"] as? Data {
             teamScoringRule = try? JSONDecoder().decode(TeamScoringRule.self, from: ruleData)
         }
 
+        let selectedTee = record["selectedTeeBoxName"] as? String
         return Course(
             id: UUID(uuidString: record.recordID.recordName) ?? UUID(),
             name: name,
@@ -654,6 +847,10 @@ actor CloudKitService {
             courseRating: record["courseRating"] as? Double ?? 72,
             city: record["city"] as? String ?? "",
             state: record["state"] as? String ?? "",
+            latitude: record["latitude"] as? Double,
+            longitude: record["longitude"] as? Double,
+            teeBoxes: teeBoxes,
+            selectedTeeBoxName: (selectedTee?.isEmpty == true) ? nil : selectedTee,
             teamScoringRule: teamScoringRule
         )
     }
@@ -762,7 +959,7 @@ actor CloudKitService {
 
         let designatedHoles = record["designatedHoles"] as? [Int] ?? []
 
-        return SideGame(
+        let sideGame = SideGame(
             id: UUID(uuidString: record.recordID.recordName) ?? UUID(),
             type: SideGameType(rawValue: typeRaw) ?? .skins,
             participantIds: participantIds,
@@ -772,33 +969,10 @@ actor CloudKitService {
             isActive: (record["isActive"] as? Int ?? 1) == 1,
             designatedHoles: designatedHoles
         )
+        sideGame.isPotGame = (record["isPotGame"] as? Int64 ?? 0) == 1
+        sideGame.potWinnerId = (record["potWinnerId"] as? String).flatMap { UUID(uuidString: $0) }
+        return sideGame
         // Note: round relationship is stitched after fetch via roundId
-    }
-
-    private func recordToMetric(_ record: CKRecord) -> Metric? {
-        guard let name = record["name"] as? String else { return nil }
-
-        return Metric(
-            id: UUID(uuidString: record.recordID.recordName) ?? UUID(),
-            name: name,
-            icon: record["icon"] as? String ?? "📊",
-            unit: record["unit"] as? String ?? "",
-            trackingType: TrackingType(rawValue: record["trackingTypeRaw"] as? String ?? "cumulative") ?? .cumulative,
-            category: MetricCategory(rawValue: record["categoryRaw"] as? String ?? "onCourse") ?? .onCourse,
-            higherIsBetter: (record["higherIsBetter"] as? Int ?? 1) == 1
-        )
-    }
-
-    private func recordToMetricEntry(_ record: CKRecord) -> MetricEntry? {
-        guard let value = record["value"] as? Double else { return nil }
-
-        return MetricEntry(
-            id: UUID(uuidString: record.recordID.recordName) ?? UUID(),
-            value: value,
-            date: record["date"] as? Date ?? Date(),
-            notes: record["notes"] as? String ?? ""
-        )
-        // Note: metric, member, round relationships stitched after fetch via IDs
     }
 
     private func recordToSideBet(_ record: CKRecord) -> SideBet? {
@@ -808,7 +982,7 @@ actor CloudKitService {
         let participants = participantStrings.compactMap { UUID(uuidString: $0) }
         let winnerId: UUID? = (record["winnerId"] as? String).flatMap { UUID(uuidString: $0) }
 
-        return SideBet(
+        let bet = SideBet(
             id: UUID(uuidString: record.recordID.recordName) ?? UUID(),
             name: name,
             betType: BetType(rawValue: record["betTypeRaw"] as? String ?? "highestTotal") ?? .highestTotal,
@@ -816,8 +990,15 @@ actor CloudKitService {
             participants: participants,
             stake: record["stake"] as? String ?? "Bragging Rights",
             status: BetStatus(rawValue: record["statusRaw"] as? String ?? "active") ?? .active,
-            winnerId: winnerId
+            winnerId: winnerId,
+            isPotBet: (record["isPotBet"] as? Int64 ?? 0) == 1,
+            potAmount: record["potAmount"] as? Double ?? 0,
+            useNetScoring: (record["useNetScoring"] as? Int64 ?? 0) == 1,
+            requiresPuttsData: (record["requiresPuttsData"] as? Int64 ?? 0) == 1
         )
-        // Note: metric relationship stitched after fetch via metricId
+        bet.customMetricName = record["customMetricName"] as? String ?? ""
+        bet.customHighestWins = (record["customHighestWins"] as? Int64 ?? 1) == 1
+        bet.customValuesRaw = record["customValuesRaw"] as? String ?? "{}"
+        return bet
     }
 }

@@ -109,7 +109,9 @@ struct CreateSideGameView: View {
                 if viewModel.selectedGameType == .closestToPin || viewModel.selectedGameType == .longDrive {
                     Section("Designated Holes") {
                         LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 6), spacing: 8) {
-                            ForEach(1...18, id: \.self) { hole in
+                            let holeCount = viewModel.currentTrip?.rounds.first(where: { $0.id == viewModel.selectedRoundId })?.course?.holes.count
+                                ?? viewModel.currentTrip?.courses.first?.holes.count ?? 18
+                            ForEach(1...holeCount, id: \.self) { hole in
                                 Button {
                                     if viewModel.designatedHoles.contains(hole) {
                                         viewModel.designatedHoles.remove(hole)
@@ -145,7 +147,7 @@ struct CreateSideGameView: View {
                         viewModel.createSideGame()
                         dismiss()
                     }
-                    .disabled(viewModel.selectedParticipantIds.isEmpty)
+                    .disabled(viewModel.selectedParticipantIds.count < 2)
                     .fontWeight(.semibold)
                 }
             }

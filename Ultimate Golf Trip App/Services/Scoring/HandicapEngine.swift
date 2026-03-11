@@ -10,7 +10,9 @@ struct HandicapEngine {
         courseRating: Double,
         par: Int
     ) -> Int {
-        let raw = handicapIndex * (slopeRating / 113.0) + (courseRating - Double(par))
+        // Clamp slope to valid range (55-155). Zero or invalid slope would zero out the handicap.
+        let clampedSlope = max(55.0, min(155.0, slopeRating))
+        let raw = handicapIndex * (clampedSlope / 113.0) + (courseRating - Double(par))
         return Int(raw.rounded())
     }
 

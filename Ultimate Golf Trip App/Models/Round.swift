@@ -14,8 +14,9 @@ final class Round {
 
     // Relationships
     var course: Course?
-    @Relationship(deleteRule: .cascade)
+    @Relationship(deleteRule: .cascade, inverse: \Scorecard.round)
     var scorecards: [Scorecard]
+    @Relationship(inverse: \Trip.rounds)
     var trip: Trip?
 
     init(
@@ -49,9 +50,7 @@ final class Round {
     var courseId: UUID? { course?.id }
 
     var formattedDate: String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        return formatter.string(from: date)
+        CachedFormatters.mediumDate.string(from: date)
     }
 
     func scorecard(forPlayer playerId: UUID) -> Scorecard? {

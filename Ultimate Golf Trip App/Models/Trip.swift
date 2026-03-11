@@ -44,15 +44,22 @@ final class Trip {
     @Relationship(deleteRule: .cascade)
     var polls: [Poll]
 
-    // Side Games: On-Course & Off-Course Tracking
-    @Relationship(deleteRule: .cascade)
-    var metrics: [Metric]
-
-    @Relationship(deleteRule: .cascade)
-    var metricEntries: [MetricEntry]
-
+    // Challenges
     @Relationship(deleteRule: .cascade)
     var sideBets: [SideBet]
+
+    /// IDs of entities that were explicitly deleted locally.
+    /// Prevents cloud sync from re-adding them.
+    var deletedPlayerIds: [String] = []
+    var deletedCourseIds: [String] = []
+    var deletedTeamIds: [String] = []
+    var deletedSideGameIds: [String] = []
+    var deletedSideBetIds: [String] = []
+    var deletedWarRoomEventIds: [String] = []
+
+    /// Schema version for forward-compatibility. Old clients that don't understand
+    /// newer fields should not push data that regresses values set by newer clients.
+    var schemaVersion: Int = 2
 
     init(
         id: UUID = UUID(),
@@ -70,8 +77,6 @@ final class Trip {
         warRoomEvents: [WarRoomEvent] = [],
         travelStatuses: [TravelStatus] = [],
         polls: [Poll] = [],
-        metrics: [Metric] = [],
-        metricEntries: [MetricEntry] = [],
         sideBets: [SideBet] = [],
         pointsPerMatchWin: Double = 1.0,
         pointsPerMatchHalve: Double = 0.5,
@@ -92,8 +97,6 @@ final class Trip {
         self.warRoomEvents = warRoomEvents
         self.travelStatuses = travelStatuses
         self.polls = polls
-        self.metrics = metrics
-        self.metricEntries = metricEntries
         self.sideBets = sideBets
         self.pointsPerMatchWin = pointsPerMatchWin
         self.pointsPerMatchHalve = pointsPerMatchHalve
@@ -121,7 +124,7 @@ final class Trip {
     }
 
     var activeRound: Round? {
-        rounds.first { !$0.isComplete && $0.scorecards.contains { $0.holesCompleted > 0 } }
+        rounds.first { !$0.isComplete && $0.scorecards.contains(where: { $0.holesCompleted > 0 }) }
     }
 
     func isOwner(_ userProfileId: UUID?) -> Bool {
@@ -184,10 +187,33 @@ final class Trip {
     }
 
     func removePlayer(id: UUID) {
+        // Track deletion so cloud sync won't re-add this player
+        if !deletedPlayerIds.contains(id.uuidString) {
+            deletedPlayerIds.append(id.uuidString)
+        }
         players.removeAll { $0.id == id }
         // Remove from teams
         for team in teams {
             team.players.removeAll { $0.id == id }
+        }
+        // Remove from round playerIds and their scorecards
+        for round in rounds {
+            round.playerIds.removeAll { $0 == id }
+            round.scorecards.removeAll { $0.player?.id == id }
+        }
+        // Remove from side game participants
+        for game in sideGames {
+            game.participantIds.removeAll { $0 == id }
+        }
+        // Remove from challenge participants
+        for bet in sideBets {
+            bet.participants.removeAll { $0 == id }
+        }
+        // Remove travel statuses
+        travelStatuses.removeAll { $0.player?.id == id }
+        // Delete from CloudKit in the background
+        Task {
+            await CloudKitService.shared.deleteRecord(id: id)
         }
     }
 
@@ -206,7 +232,11 @@ final class Trip {
     }
 
     func removeWarRoomEvent(id: UUID) {
+        if !deletedWarRoomEventIds.contains(id.uuidString) {
+            deletedWarRoomEventIds.append(id.uuidString)
+        }
         warRoomEvents.removeAll { $0.id == id }
+        Task { await CloudKitService.shared.deleteRecord(id: id) }
     }
 
     func updateTravelStatus(_ status: TravelStatus) {
@@ -236,38 +266,10 @@ final class Trip {
         }
     }
 
-    // MARK: - Metric / Challenge Lookups
-
-    func metric(withId id: UUID) -> Metric? {
-        metrics.first { $0.id == id }
-    }
+    // MARK: - Challenge Lookups
 
     func sideBet(withId id: UUID) -> SideBet? {
         sideBets.first { $0.id == id }
-    }
-
-    func entries(forMetric metricId: UUID) -> [MetricEntry] {
-        metricEntries.filter { $0.metric?.id == metricId }
-    }
-
-    func entries(forMember memberId: UUID) -> [MetricEntry] {
-        metricEntries.filter { $0.member?.id == memberId }
-    }
-
-    func entries(forMetric metricId: UUID, member memberId: UUID) -> [MetricEntry] {
-        metricEntries.filter { $0.metric?.id == metricId && $0.member?.id == memberId }
-    }
-
-    func totalValue(forMetric metricId: UUID, member memberId: UUID) -> Double {
-        entries(forMetric: metricId, member: memberId).reduce(0) { $0 + $1.value }
-    }
-
-    var onCourseMetrics: [Metric] {
-        metrics.filter { $0.category == .onCourse }
-    }
-
-    var offCourseMetrics: [Metric] {
-        metrics.filter { $0.category == .offCourse }
     }
 
     var activeSideBets: [SideBet] {
@@ -278,39 +280,7 @@ final class Trip {
         sideBets.filter { $0.isCompleted }
     }
 
-    func bets(forMetric metricId: UUID) -> [SideBet] {
-        sideBets.filter { $0.metric?.id == metricId }
-    }
-
-    // MARK: - Metric / Challenge Mutations
-
-    func addMetric(_ metric: Metric) {
-        metric.trip = self
-        metrics.append(metric)
-    }
-
-    func updateMetric(_ metric: Metric) {
-        // With reference types, the metric is already mutated in-place
-    }
-
-    func removeMetric(id: UUID) {
-        metrics.removeAll { $0.id == id }
-        metricEntries.removeAll { $0.metric?.id == id }
-        sideBets.removeAll { $0.metric?.id == id }
-    }
-
-    func addMetricEntry(_ entry: MetricEntry) {
-        entry.trip = self
-        metricEntries.append(entry)
-    }
-
-    func updateMetricEntry(_ entry: MetricEntry) {
-        // With reference types, the entry is already mutated in-place
-    }
-
-    func removeMetricEntry(id: UUID) {
-        metricEntries.removeAll { $0.id == id }
-    }
+    // MARK: - Challenge Mutations
 
     func addSideBet(_ bet: SideBet) {
         bet.trip = self
@@ -329,7 +299,11 @@ final class Trip {
     }
 
     func removeSideBet(id: UUID) {
+        if !deletedSideBetIds.contains(id.uuidString) {
+            deletedSideBetIds.append(id.uuidString)
+        }
         sideBets.removeAll { $0.id == id }
+        Task { await CloudKitService.shared.deleteRecord(id: id) }
     }
 
     // MARK: - Private Helpers

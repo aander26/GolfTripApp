@@ -16,6 +16,7 @@ final class WarRoomEvent {
     var createdAt: Date
 
     // Relationships
+    @Relationship(inverse: \Trip.warRoomEvents)
     var trip: Trip?
 
     init(
@@ -66,20 +67,14 @@ final class WarRoomEvent {
     }
 
     var formattedTime: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h:mm a"
-        return formatter.string(from: dateTime)
+        CachedFormatters.time.string(from: dateTime)
     }
 
     var formattedDate: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEE, MMM d"
-        return formatter.string(from: dateTime)
+        CachedFormatters.weekdayShortDate.string(from: dateTime)
     }
 
     var formattedDateShort: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d"
-        return formatter.string(from: dateTime)
+        CachedFormatters.shortDate.string(from: dateTime)
     }
 }

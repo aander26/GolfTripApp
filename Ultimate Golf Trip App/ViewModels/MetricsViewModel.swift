@@ -1,41 +1,28 @@
 import Foundation
 import SwiftUI
 
-@Observable
-class MetricsViewModel {
+/// Renamed from MetricsViewModel — manages challenges (side bets) only.
+/// The old metrics tracking system has been removed.
+typealias MetricsViewModel = ChallengesViewModel
+
+@MainActor @Observable
+class ChallengesViewModel {
     var appState: AppState
 
-    // Sheet state
-    var showingAddMetric = false
-    var showingLogEntry = false
-    var showingCreateBet = false
-    var showingPresetPicker = false
-    var selectedMetric: Metric?
-    var selectedCategory: MetricCategory = .onCourse
-
-    // Add metric form
-    var newMetricName: String = ""
-    var newMetricIcon: String = "📊"
-    var newMetricUnit: String = ""
-    var newMetricTrackingType: TrackingType = .perRound
-    var newMetricCategory: MetricCategory = .onCourse
-    var newMetricHigherIsBetter: Bool = true
-
-    // Log entry form
-    var entryValue: String = ""
-    var entryNotes: String = ""
-    var entryPlayerId: UUID?
-    var entryRoundId: UUID?
-
     // Create bet form
+    var showingCreateBet = false
     var newBetName: String = ""
-    var newBetMetricId: UUID?
-    var newBetType: BetType = .highestTotal
+    var newBetType: BetType = .lowRound
     var newBetTargetValue: String = ""
     var newBetParticipants: Set<UUID> = []
     var newBetStake: String = ""
     var newBetIsPot: Bool = false
     var newBetPotAmount: String = ""
+    var newBetRoundId: UUID?
+    var newBetUseNetScoring: Bool = false
+    var newBetRequiresPutts: Bool = false
+    var newBetCustomMetricName: String = ""
+    var newBetCustomHighestWins: Bool = true
 
     init(appState: AppState) {
         self.appState = appState
@@ -43,20 +30,6 @@ class MetricsViewModel {
 
     var currentTrip: Trip? {
         appState.currentTrip
-    }
-
-    // MARK: - Metric Lists
-
-    var onCourseMetrics: [Metric] {
-        currentTrip?.onCourseMetrics ?? []
-    }
-
-    var offCourseMetrics: [Metric] {
-        currentTrip?.offCourseMetrics ?? []
-    }
-
-    var allMetrics: [Metric] {
-        currentTrip?.metrics ?? []
     }
 
     var activeBets: [SideBet] {
@@ -67,145 +40,53 @@ class MetricsViewModel {
         currentTrip?.completedSideBets ?? []
     }
 
-    // MARK: - Leaderboard for a Metric
-
-    struct MetricStanding: Identifiable {
-        let id: UUID
-        let player: Player
-        let total: Double
-        let entryCount: Int
-    }
-
-    func standings(for metricId: UUID) -> [MetricStanding] {
-        guard let trip = currentTrip,
-              let metric = trip.metric(withId: metricId) else { return [] }
-
-        return trip.players.map { player in
-            let total = trip.totalValue(forMetric: metricId, member: player.id)
-            let count = trip.entries(forMetric: metricId, member: player.id).count
-            return MetricStanding(id: player.id, player: player, total: total, entryCount: count)
-        }
-        .sorted { a, b in
-            metric.higherIsBetter ? a.total > b.total : a.total < b.total
-        }
-    }
-
-    func recentEntries(for metricId: UUID, limit: Int = 20) -> [MetricEntry] {
-        guard let trip = currentTrip else { return [] }
-        return trip.entries(forMetric: metricId)
-            .sorted { $0.date > $1.date }
-            .prefix(limit)
-            .map { $0 }
-    }
-
     func playerName(for id: UUID) -> String {
         currentTrip?.player(withId: id)?.name ?? "Unknown"
     }
 
-    func metricName(for id: UUID) -> String {
-        currentTrip?.metric(withId: id)?.name ?? "Unknown"
-    }
-
-    // MARK: - Add Metric
-
-    func addMetric() {
-        guard !newMetricName.isEmpty, let trip = currentTrip else { return }
-        let metric = Metric(
-            name: newMetricName,
-            icon: newMetricIcon,
-            unit: newMetricUnit,
-            trackingType: newMetricTrackingType,
-            category: newMetricCategory,
-            higherIsBetter: newMetricHigherIsBetter
-        )
-        trip.addMetric(metric)
-        appState.saveContext()
-        resetMetricForm()
-    }
-
-    func addPresetMetric(_ preset: Metric) {
-        guard let trip = currentTrip else { return }
-        // Don't add duplicates
-        guard !trip.metrics.contains(where: { $0.name == preset.name }) else { return }
-        // Create a new instance so we don't insert the static template
-        let metric = Metric(
-            name: preset.name,
-            icon: preset.icon,
-            unit: preset.unit,
-            trackingType: preset.trackingType,
-            category: preset.category,
-            higherIsBetter: preset.higherIsBetter
-        )
-        trip.addMetric(metric)
-        appState.saveContext()
-    }
-
-    func deleteMetric(_ metricId: UUID) {
-        guard let trip = currentTrip else { return }
-        trip.removeMetric(id: metricId)
-        appState.saveContext()
-    }
-
-    // MARK: - Log Entry
-
-    func logEntry() {
-        guard let metric = selectedMetric,
-              let playerId = entryPlayerId,
-              let value = Double(entryValue),
-              let trip = currentTrip else { return }
-
-        let player = trip.player(withId: playerId)
-        let round = entryRoundId.flatMap { trip.round(withId: $0) }
-
-        let entry = MetricEntry(
-            metric: metric,
-            member: player,
-            value: value,
-            round: round,
-            notes: entryNotes
-        )
-        trip.addMetricEntry(entry)
-        appState.saveContext()
-        resetEntryForm()
-    }
-
-    func deleteEntry(_ entryId: UUID) {
-        guard let trip = currentTrip else { return }
-        trip.removeMetricEntry(id: entryId)
-        appState.saveContext()
-    }
-
-    // MARK: - Side Bets
+    // MARK: - Challenge CRUD
 
     func createBet() {
         guard !newBetName.isEmpty,
-              let metricId = newBetMetricId,
               newBetParticipants.count >= 2,
               let trip = currentTrip else { return }
 
-        let metric = trip.metric(withId: metricId)
+        // Round-based challenges require a round
+        if newBetType.isRoundBased {
+            guard newBetRoundId != nil else { return }
+        }
+
         let target = Double(newBetTargetValue)
         let potAmountValue = Double(newBetPotAmount) ?? 0
+        let round = newBetRoundId.flatMap { trip.round(withId: $0) }
 
-        // Use the free-text commitment; default to "Bragging Rights" if empty
         let stakeText: String = newBetStake.isEmpty ? "Bragging Rights" : newBetStake
 
         let bet = SideBet(
             name: newBetName,
-            metric: metric,
             betType: newBetType,
             targetValue: target,
             participants: Array(newBetParticipants),
             stake: stakeText,
             isPotBet: newBetIsPot,
-            potAmount: potAmountValue
+            potAmount: potAmountValue,
+            round: round,
+            useNetScoring: newBetUseNetScoring,
+            requiresPuttsData: newBetRequiresPutts
         )
+
+        // Set custom challenge fields
+        if newBetType.isCustom {
+            bet.customMetricName = newBetCustomMetricName
+            bet.customHighestWins = newBetCustomHighestWins
+        }
+
         trip.addSideBet(bet)
         appState.saveContext()
         resetBetForm()
     }
 
-    /// Auto-settle: determine the winner from metric data and complete the bet.
+    /// Auto-settle: determine the winner from scorecard data and complete the bet.
     func completeBet(_ betId: UUID) {
         guard let trip = currentTrip,
               let bet = trip.sideBet(withId: betId) else { return }
@@ -228,62 +109,316 @@ class MetricsViewModel {
         appState.saveContext()
     }
 
-    /// Get participant players for a bet (used by the winner picker sheet).
+    /// Get participant players for a bet.
     func betParticipants(for bet: SideBet) -> [Player] {
         guard let trip = currentTrip else { return [] }
         return bet.participants.compactMap { trip.player(withId: $0) }
     }
 
-    private func determineWinner(for bet: SideBet) -> UUID? {
-        guard let trip = currentTrip,
-              let metricId = bet.metric?.id else { return nil }
+    // MARK: - Custom Challenge Values
 
-        let playerTotals = bet.participants.map { playerId in
-            (playerId, trip.totalValue(forMetric: metricId, member: playerId))
+    func updateCustomValue(betId: UUID, playerId: UUID, value: Double) {
+        guard let trip = currentTrip,
+              let bet = trip.sideBet(withId: betId) else { return }
+        bet.updateCustomValue(for: playerId, value: value)
+        appState.saveContext()
+    }
+
+    // MARK: - Winner Determination
+
+    private func determineWinner(for bet: SideBet) -> UUID? {
+        // Custom challenges: compare custom values
+        if bet.challengeType.isCustom {
+            return determineCustomWinner(for: bet)
         }
 
-        switch bet.betType {
-        case .highestTotal:
-            return playerTotals.max(by: { $0.1 < $1.1 })?.0
-        case .lowestTotal:
-            return playerTotals.min(by: { $0.1 < $1.1 })?.0
-        case .closestToTarget:
-            guard let target = bet.targetValue else { return nil }
-            return playerTotals.min(by: { abs($0.1 - target) < abs($1.1 - target) })?.0
-        case .overUnder, .headToHead:
-            // These require manual resolution for now
+        // Round-based challenges: compare scorecard metrics
+        if bet.isRoundBased {
+            return determineRoundBasedWinner(for: bet)
+        }
+
+        // Non-round-based challenges without metrics require manual settlement
+        return nil
+    }
+
+    private func determineRoundBasedWinner(for bet: SideBet) -> UUID? {
+        guard let round = bet.round else { return nil }
+        return Self.determineRoundBasedWinner(for: bet, round: round)
+    }
+
+    /// Static helper so other view models (e.g. ScorecardViewModel) can auto-settle.
+    static func determineRoundBasedWinner(for bet: SideBet, round: Round) -> UUID? {
+        let playerMetrics: [(UUID, Int)] = bet.participants.compactMap { playerId in
+            guard let value = metricForPlayer(playerId, bet: bet, round: round) else { return nil }
+            guard value > 0 || bet.challengeType == .fewest3Putts || bet.challengeType == .most3Putts else { return nil }
+            return (playerId, value)
+        }
+
+        guard !playerMetrics.isEmpty else { return nil }
+
+        let best: (UUID, Int)?
+        if bet.challengeType.highestWins {
+            best = playerMetrics.max(by: { $0.1 < $1.1 })
+        } else {
+            best = playerMetrics.min(by: { $0.1 < $1.1 })
+        }
+
+        guard let winner = best else { return nil }
+        let tiedCount = playerMetrics.filter { $0.1 == winner.1 }.count
+        return tiedCount == 1 ? winner.0 : nil
+    }
+
+    private func determineCustomWinner(for bet: SideBet) -> UUID? {
+        let values = bet.customValues
+        let playerValues: [(UUID, Double)] = bet.participants.compactMap { playerId in
+            guard let value = values[playerId] else { return nil }
+            return (playerId, value)
+        }
+
+        guard playerValues.count == bet.participants.count else { return nil }
+
+        let best: (UUID, Double)?
+        if bet.customHighestWins {
+            best = playerValues.max(by: { $0.1 < $1.1 })
+        } else {
+            best = playerValues.min(by: { $0.1 < $1.1 })
+        }
+
+        guard let winner = best else { return nil }
+        let tiedCount = playerValues.filter { $0.1 == winner.1 }.count
+        return tiedCount == 1 ? winner.0 : nil
+    }
+
+    // MARK: - Shared Metric Computation
+
+    /// Compute the relevant metric value for a player in a round-based challenge.
+    /// Shared across winner determination, card display, and settlement results.
+    static func metricForPlayer(_ playerId: UUID, bet: SideBet, round: Round) -> Int? {
+        guard let card = round.scorecard(forPlayer: playerId) else { return nil }
+
+        switch bet.challengeType {
+        case .lowRound, .headToHeadRound:
+            let score = bet.useNetScoring ? card.totalNet : card.totalGross
+            return score > 0 ? score : nil
+        case .mostBirdies:
+            guard card.holesCompleted > 0 else { return nil }
+            return card.holeScores.filter {
+                $0.isCompleted && (bet.useNetScoring ? $0.netScoreToPar <= -1 : $0.scoreToPar <= -1)
+            }.count
+        case .fewestPutts:
+            guard card.holesCompleted > 0 else { return nil }
+            return card.totalPutts
+        case .fewest3Putts, .most3Putts:
+            guard card.holesCompleted > 0 else { return nil }
+            return card.holeScores.filter { $0.isCompleted && $0.putts >= 3 }.count
+        default:
             return nil
         }
     }
 
-    // MARK: - Form Resets
-
-    func resetMetricForm() {
-        newMetricName = ""
-        newMetricIcon = "📊"
-        newMetricUnit = ""
-        newMetricTrackingType = .perRound
-        newMetricHigherIsBetter = true
-        showingAddMetric = false
+    /// Label for the metric value in a given challenge type.
+    static func metricLabel(for type: ChallengeType) -> String {
+        switch type {
+        case .lowRound, .headToHeadRound: return "Score"
+        case .mostBirdies: return "Birdies"
+        case .fewestPutts: return "Putts"
+        case .fewest3Putts, .most3Putts: return "3-Putts"
+        default: return "Value"
+        }
     }
 
-    func resetEntryForm() {
-        entryValue = ""
-        entryNotes = ""
-        entryPlayerId = nil
-        entryRoundId = nil
-        showingLogEntry = false
+    // MARK: - Live Standings
+
+    /// A single player's standing in a challenge.
+    struct PlayerStanding: Identifiable {
+        let playerId: UUID
+        let playerName: String
+        let value: Double
+        let label: String      // e.g. "72", "3 birdies", "28 putts"
+        let isLeader: Bool
+
+        var id: UUID { playerId }
     }
+
+    /// Compute real-time standings for any challenge type.
+    func liveStandings(for bet: SideBet) -> [PlayerStanding] {
+        guard let trip = currentTrip else { return [] }
+
+        if bet.challengeType.isCustom {
+            return customStandings(for: bet, trip: trip)
+        }
+        if bet.isRoundBased {
+            return roundBasedStandings(for: bet, trip: trip)
+        }
+        return []
+    }
+
+    private func roundBasedStandings(for bet: SideBet, trip: Trip) -> [PlayerStanding] {
+        guard let round = bet.round else { return [] }
+        let metricName = Self.metricLabel(for: bet.challengeType)
+
+        let standings: [PlayerStanding] = bet.participants.compactMap { playerId in
+            guard let player = trip.player(withId: playerId),
+                  let value = Self.metricForPlayer(playerId, bet: bet, round: round) else { return nil }
+            return PlayerStanding(
+                playerId: playerId,
+                playerName: player.name,
+                value: Double(value),
+                label: "\(value) \(metricName)",
+                isLeader: false
+            )
+        }
+
+        let sorted: [PlayerStanding]
+        if bet.challengeType.highestWins {
+            sorted = standings.sorted { $0.value > $1.value }
+        } else {
+            sorted = standings.sorted { $0.value < $1.value }
+        }
+
+        guard let bestValue = sorted.first?.value else { return sorted }
+        return sorted.map {
+            PlayerStanding(
+                playerId: $0.playerId,
+                playerName: $0.playerName,
+                value: $0.value,
+                label: $0.label,
+                isLeader: $0.value == bestValue
+            )
+        }
+    }
+
+    private func customStandings(for bet: SideBet, trip: Trip) -> [PlayerStanding] {
+        let values = bet.customValues
+        let metricName = bet.customMetricName.isEmpty ? "Value" : bet.customMetricName
+
+        let standings: [PlayerStanding] = bet.participants.compactMap { playerId in
+            guard let player = trip.player(withId: playerId) else { return nil }
+            let value = values[playerId] ?? 0
+            let hasValue = values[playerId] != nil
+            return PlayerStanding(
+                playerId: playerId,
+                playerName: player.name,
+                value: value,
+                label: hasValue ? "\(value.formatted()) \(metricName)" : "—",
+                isLeader: false
+            )
+        }
+
+        let sorted: [PlayerStanding]
+        if bet.customHighestWins {
+            sorted = standings.sorted { $0.value > $1.value }
+        } else {
+            sorted = standings.sorted { $0.value < $1.value }
+        }
+
+        let hasAnyValue = values.values.contains { $0 != 0 }
+        guard hasAnyValue, let bestValue = sorted.first?.value else { return sorted }
+        return sorted.map {
+            PlayerStanding(
+                playerId: $0.playerId,
+                playerName: $0.playerName,
+                value: $0.value,
+                label: $0.label,
+                isLeader: $0.value == bestValue
+            )
+        }
+    }
+
+    // MARK: - Quick Create Templates
+
+    /// Pre-fill the create form from a challenge template.
+    func applyTemplate(_ template: ChallengeTemplate) {
+        resetBetForm()
+        newBetName = template.displayName
+        newBetType = template.betType
+        newBetUseNetScoring = template.useNetScoring
+        newBetRequiresPutts = template.requiresPutts
+
+        // Select all players by default
+        if let trip = currentTrip {
+            newBetParticipants = Set(trip.players.map(\.id))
+        }
+
+        showingCreateBet = true
+    }
+
+    // MARK: - Form Reset
 
     func resetBetForm() {
         newBetName = ""
-        newBetMetricId = nil
-        newBetType = .highestTotal
+        newBetType = .lowRound
         newBetTargetValue = ""
         newBetParticipants = []
         newBetStake = ""
         newBetIsPot = false
         newBetPotAmount = ""
+        newBetRoundId = nil
+        newBetUseNetScoring = false
+        newBetRequiresPutts = false
+        newBetCustomMetricName = ""
+        newBetCustomHighestWins = true
         showingCreateBet = false
+    }
+}
+
+// MARK: - Challenge Templates
+
+enum ChallengeTemplate: String, CaseIterable, Identifiable {
+    case lowRoundGross = "lowRoundGross"
+    case lowRoundNet = "lowRoundNet"
+    case headToHead = "headToHead"
+    case mostBirdiesGross = "mostBirdiesGross"
+    case mostBirdiesNet = "mostBirdiesNet"
+    case fewestPutts = "fewestPutts"
+    case fewest3Putts = "fewest3Putts"
+    case most3Putts = "most3Putts"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .lowRoundGross: return "Low Round (Gross)"
+        case .lowRoundNet: return "Low Round (Net)"
+        case .headToHead: return "Head-to-Head Matchup"
+        case .mostBirdiesGross: return "Most Birdies (Gross)"
+        case .mostBirdiesNet: return "Most Birdies (Net)"
+        case .fewestPutts: return "Fewest Putts"
+        case .fewest3Putts: return "Fewest 3-Putts"
+        case .most3Putts: return "Most 3-Putts"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .lowRoundGross, .lowRoundNet: return "medal.fill"
+        case .headToHead: return "person.2.fill"
+        case .mostBirdiesGross, .mostBirdiesNet: return "bird.fill"
+        case .fewestPutts, .fewest3Putts: return "flag.fill"
+        case .most3Putts: return "hand.thumbsdown.fill"
+        }
+    }
+
+    var betType: BetType {
+        switch self {
+        case .lowRoundGross, .lowRoundNet: return .lowRound
+        case .headToHead: return .headToHeadRound
+        case .mostBirdiesGross, .mostBirdiesNet: return .mostBirdies
+        case .fewestPutts: return .fewestPutts
+        case .fewest3Putts: return .fewest3Putts
+        case .most3Putts: return .most3Putts
+        }
+    }
+
+    var useNetScoring: Bool {
+        switch self {
+        case .lowRoundNet, .mostBirdiesNet: return true
+        default: return false
+        }
+    }
+
+    /// Whether this template requires putts data in the scorecard.
+    var requiresPutts: Bool {
+        self == .fewestPutts || self == .fewest3Putts || self == .most3Putts
     }
 }

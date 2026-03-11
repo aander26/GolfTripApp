@@ -12,6 +12,7 @@ final class Poll {
     var allowMultipleVotes: Bool
 
     // Relationships
+    @Relationship(inverse: \Trip.polls)
     var trip: Trip?
 
     init(
@@ -47,20 +48,26 @@ final class Poll {
     }
 
     func toggleVote(optionId: UUID, playerId: UUID) {
-        // Remove existing vote if single-vote mode
+        guard let index = options.firstIndex(where: { $0.id == optionId }) else { return }
+
+        let wasAlreadyVoted = options[index].voterIds.contains(playerId)
+
         if !allowMultipleVotes {
+            // Remove all existing votes for this player
             for i in options.indices {
                 options[i].voterIds.removeAll { $0 == playerId }
             }
         }
 
-        // Toggle vote on selected option
-        if let index = options.firstIndex(where: { $0.id == optionId }) {
-            if options[index].voterIds.contains(playerId) {
+        // Toggle: if they were already on this option, leave it removed; otherwise add
+        if wasAlreadyVoted {
+            // In multi-vote mode, we haven't removed yet, so remove now
+            if allowMultipleVotes {
                 options[index].voterIds.removeAll { $0 == playerId }
-            } else {
-                options[index].voterIds.append(playerId)
             }
+            // In single-vote mode, already removed above — done
+        } else {
+            options[index].voterIds.append(playerId)
         }
     }
 }

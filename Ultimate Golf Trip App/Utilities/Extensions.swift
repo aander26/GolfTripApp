@@ -33,6 +33,7 @@ enum Theme {
     // Borders
     static let border = Color(red: 0.898, green: 0.906, blue: 0.922)             // #E5E7EB
     static let borderStrong = Color(red: 0.820, green: 0.835, blue: 0.859)       // #D1D5DB
+
 }
 
 // MARK: - Legacy Color Aliases (backward compatible)
@@ -173,6 +174,42 @@ extension HoleScore {
     }
 }
 
+// MARK: - Cached DateFormatters
+
+/// Reusable cached DateFormatters. DateFormatter is expensive to create;
+/// these statics are created once and shared across the app.
+enum CachedFormatters {
+    static let mediumDate: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        return f
+    }()
+
+    static let time: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "h:mm a"
+        return f
+    }()
+
+    static let shortDate: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d"
+        return f
+    }()
+
+    static let weekdayShortDate: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "EEE, MMM d"
+        return f
+    }()
+
+    static let shortDateTime: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d, h:mm a"
+        return f
+    }()
+}
+
 // MARK: - Date Extensions
 
 extension Date {
@@ -181,15 +218,11 @@ extension Date {
     }
 
     var shortFormatted: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d"
-        return formatter.string(from: self)
+        CachedFormatters.shortDate.string(from: self)
     }
 
     var timeFormatted: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h:mm a"
-        return formatter.string(from: self)
+        CachedFormatters.time.string(from: self)
     }
 }
 

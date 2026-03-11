@@ -114,6 +114,11 @@ struct CourseScoringRuleView: View {
     @State private var pointsPerWin: Double
     @State private var pointsPerHalve: Double
     @State private var pointsPerLoss: Double
+    // Nines & Overall specific
+    @State private var pointsPerNineWin: Double
+    @State private var pointsPerNineHalve: Double
+    @State private var pointsPerOverallWin: Double
+    @State private var pointsPerOverallHalve: Double
 
     init(course: Course, viewModel: TripViewModel) {
         self.course = course
@@ -126,6 +131,10 @@ struct CourseScoringRuleView: View {
         _pointsPerWin = State(initialValue: rule.pointsPerWin)
         _pointsPerHalve = State(initialValue: rule.pointsPerHalve)
         _pointsPerLoss = State(initialValue: rule.pointsPerLoss)
+        _pointsPerNineWin = State(initialValue: rule.nineWinPoints)
+        _pointsPerNineHalve = State(initialValue: rule.nineHalvePoints)
+        _pointsPerOverallWin = State(initialValue: rule.overallWinPoints)
+        _pointsPerOverallHalve = State(initialValue: rule.overallHalvePoints)
     }
 
     var body: some View {
@@ -154,20 +163,47 @@ struct CourseScoringRuleView: View {
                         .foregroundStyle(.secondary)
                 }
 
-                // Points Configuration
-                Section {
-                    Stepper("\(selectedFormat.isPerPlayerFormat ? "Win" : "Winner"): \(pointsPerWin, specifier: "%.1f") pts",
-                            value: $pointsPerWin, in: 0...20, step: 0.5)
+                // Points Configuration — format-specific
+                if selectedFormat == .ninesAndOverall {
+                    // Nines & Overall specific point settings
+                    Section {
+                        Stepper("Front/Back 9 Win: \(pointsPerNineWin, specifier: "%.1f") pts",
+                                value: $pointsPerNineWin, in: 0...20, step: 0.5)
 
-                    Stepper("Halve/Tie: \(pointsPerHalve, specifier: "%.1f") pts",
-                            value: $pointsPerHalve, in: 0...20, step: 0.5)
+                        Stepper("Front/Back 9 Halve: \(pointsPerNineHalve, specifier: "%.1f") pts",
+                                value: $pointsPerNineHalve, in: 0...20, step: 0.5)
+                    } header: {
+                        Text("Nine Hole Points")
+                    } footer: {
+                        Text("Points for winning or halving the front 9 or back 9 in each 1v1 match.")
+                    }
 
-                    Stepper("Loss: \(pointsPerLoss, specifier: "%.1f") pts",
-                            value: $pointsPerLoss, in: 0...20, step: 0.5)
-                } header: {
-                    Text(selectedFormat.pointsLabel)
-                } footer: {
-                    pointsFooter
+                    Section {
+                        Stepper("Overall Win: \(pointsPerOverallWin, specifier: "%.1f") pts",
+                                value: $pointsPerOverallWin, in: 0...20, step: 0.5)
+
+                        Stepper("Overall Halve: \(pointsPerOverallHalve, specifier: "%.1f") pts",
+                                value: $pointsPerOverallHalve, in: 0...20, step: 0.5)
+                    } header: {
+                        Text("Overall 18 Points")
+                    } footer: {
+                        Text("Points for winning or halving the overall 18-hole net score. Max points per match: \(String(format: "%.1f", pointsPerNineWin * 2 + pointsPerOverallWin))")
+                    }
+                } else {
+                    Section {
+                        Stepper("\(selectedFormat.isPerPlayerFormat ? "Win" : "Winner"): \(pointsPerWin, specifier: "%.1f") pts",
+                                value: $pointsPerWin, in: 0...20, step: 0.5)
+
+                        Stepper("Halve/Tie: \(pointsPerHalve, specifier: "%.1f") pts",
+                                value: $pointsPerHalve, in: 0...20, step: 0.5)
+
+                        Stepper("Loss: \(pointsPerLoss, specifier: "%.1f") pts",
+                                value: $pointsPerLoss, in: 0...20, step: 0.5)
+                    } header: {
+                        Text(selectedFormat.pointsLabel)
+                    } footer: {
+                        pointsFooter
+                    }
                 }
 
                 // Quick Presets
@@ -177,6 +213,13 @@ struct CourseScoringRuleView: View {
                         pointsPerWin = 1.0
                         pointsPerHalve = 0.5
                         pointsPerLoss = 0.0
+                    }
+                    Button("Nines & Overall (1 / 0.5 / 3)") {
+                        selectedFormat = .ninesAndOverall
+                        pointsPerNineWin = 1.0
+                        pointsPerNineHalve = 0.5
+                        pointsPerOverallWin = 3.0
+                        pointsPerOverallHalve = 1.5
                     }
                     Button("Singles — Point Per Hole Won (1 / 0 / 0)") {
                         selectedFormat = .singlesMatchPlay
@@ -209,7 +252,11 @@ struct CourseScoringRuleView: View {
                             format: selectedFormat,
                             pointsPerWin: pointsPerWin,
                             pointsPerHalve: pointsPerHalve,
-                            pointsPerLoss: pointsPerLoss
+                            pointsPerLoss: pointsPerLoss,
+                            pointsPerNineWin: pointsPerNineWin,
+                            pointsPerNineHalve: pointsPerNineHalve,
+                            pointsPerOverallWin: pointsPerOverallWin,
+                            pointsPerOverallHalve: pointsPerOverallHalve
                         )
                         viewModel.updateCourseScoringRule(course, rule: rule)
                     } else {
@@ -229,6 +276,8 @@ struct CourseScoringRuleView: View {
             Text("Each 1v1 match win, halve, or loss awards these points to the team.")
         case .singlesMatchPlay:
             Text("Each individual hole won earns the winning player's team these points.")
+        case .ninesAndOverall:
+            Text("Points awarded for front 9, back 9, and overall 18 net stroke winners.")
         case .teamStrokePlay:
             Text("The team with the lower combined net score wins the defined points.")
         case .teamBestBall:

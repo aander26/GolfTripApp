@@ -11,6 +11,7 @@ final class TravelStatus {
 
     // Relationships
     var player: Player?
+    @Relationship(inverse: \Trip.travelStatuses)
     var trip: Trip?
 
     init(

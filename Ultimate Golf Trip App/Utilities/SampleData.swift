@@ -209,72 +209,24 @@ enum SampleData {
         )
     }()
 
-    // MARK: - Metrics & Challenges Sample Data
-
-    static let sampleMetrics: [Metric] = {
-        // Create new instances (don't use presets directly since those are templates)
-        let birdies = Metric(name: "Birdies", icon: "🐦", unit: "birdies", trackingType: .perRound, category: .onCourse, higherIsBetter: true)
-        let putts = Metric(name: "Total Putts", icon: "🏌️", unit: "putts", trackingType: .perRound, category: .onCourse, higherIsBetter: false)
-        let fairways = Metric(name: "Fairways Hit", icon: "🎯", unit: "fairways", trackingType: .perRound, category: .onCourse, higherIsBetter: true)
-        let beers = Metric(name: "Beers Consumed", icon: "🍺", unit: "beers", trackingType: .perDay, category: .offCourse, higherIsBetter: true)
-        let sleep = Metric(name: "Hours Slept", icon: "😴", unit: "hours", trackingType: .perDay, category: .offCourse, higherIsBetter: false)
-        let steps = Metric(name: "Steps Walked", icon: "👟", unit: "steps", trackingType: .perDay, category: .offCourse, higherIsBetter: true)
-        return [birdies, putts, fairways, beers, sleep, steps]
-    }()
-
-    static let sampleMetricEntries: [MetricEntry] = {
-        let metrics = sampleMetrics
-        let p = playersWithTeams
-        let r = round
-
-        return [
-            // Birdies
-            MetricEntry(metric: metrics[0], member: p[0], value: 2, round: r),
-            MetricEntry(metric: metrics[0], member: p[1], value: 3, round: r),
-            MetricEntry(metric: metrics[0], member: p[2], value: 1, round: r),
-            MetricEntry(metric: metrics[0], member: p[3], value: 4, round: r),
-            // Total Putts
-            MetricEntry(metric: metrics[1], member: p[0], value: 32, round: r),
-            MetricEntry(metric: metrics[1], member: p[1], value: 29, round: r),
-            MetricEntry(metric: metrics[1], member: p[2], value: 35, round: r),
-            MetricEntry(metric: metrics[1], member: p[3], value: 28, round: r),
-            // Beers
-            MetricEntry(metric: metrics[3], member: p[0], value: 4, date: Date().addingTimeInterval(-86400)),
-            MetricEntry(metric: metrics[3], member: p[1], value: 6, date: Date().addingTimeInterval(-86400)),
-            MetricEntry(metric: metrics[3], member: p[2], value: 3, date: Date().addingTimeInterval(-86400)),
-            MetricEntry(metric: metrics[3], member: p[3], value: 8, date: Date().addingTimeInterval(-86400), notes: "Welcome dinner went hard"),
-            // Sleep
-            MetricEntry(metric: metrics[4], member: p[0], value: 7.5, date: Date().addingTimeInterval(-86400)),
-            MetricEntry(metric: metrics[4], member: p[1], value: 6.0, date: Date().addingTimeInterval(-86400)),
-            MetricEntry(metric: metrics[4], member: p[2], value: 8.5, date: Date().addingTimeInterval(-86400)),
-            MetricEntry(metric: metrics[4], member: p[3], value: 5.0, date: Date().addingTimeInterval(-86400), notes: "Dave was up late")
-        ]
-    }()
+    // MARK: - Challenges Sample Data
 
     static let sampleSideBets: [SideBet] = {
         let p = playersWithTeams
-        let metrics = sampleMetrics
         return [
             SideBet(
-                name: "Most Birdies",
-                metric: metrics[0],
-                betType: .highestTotal,
+                name: "Low Round Day 1",
+                betType: .lowRound,
                 participants: p.map(\.id),
-                stake: "Bragging Rights"
+                stake: "Bragging Rights",
+                round: round
             ),
             SideBet(
-                name: "Fewest Putts",
-                metric: metrics[1],
-                betType: .lowestTotal,
-                participants: p.map(\.id),
-                stake: "Buys dinner"
-            ),
-            SideBet(
-                name: "Beer King",
-                metric: metrics[3],
-                betType: .highestTotal,
-                participants: p.map(\.id),
-                stake: "Wears the visor"
+                name: "Alex vs Mike",
+                betType: .headToHeadRound,
+                participants: [p[0].id, p[1].id],
+                stake: "Buys dinner",
+                round: round
             )
         ]
     }()
@@ -295,37 +247,26 @@ enum SampleData {
             warRoomEvents: warRoomEvents,
             travelStatuses: travelStatuses,
             polls: [samplePoll],
-            metrics: sampleMetrics,
-            metricEntries: sampleMetricEntries,
             sideBets: sampleSideBets
         )
     }()
-
-    static let weather: WeatherData = WeatherData(
-        temperature: 78,
-        feelsLike: 80,
-        humidity: 35,
-        windSpeed: 8,
-        windDirection: 225,
-        windGust: 14,
-        condition: .fewClouds,
-        description: "Partly cloudy",
-        icon: "02d",
-        visibility: 10000,
-        precipitationChance: 0.1,
-        uvIndex: 7,
-        sunrise: Calendar.current.date(bySettingHour: 6, minute: 30, second: 0, of: Date()),
-        sunset: Calendar.current.date(bySettingHour: 18, minute: 45, second: 0, of: Date()),
-        fetchedAt: Date()
-    )
 
     // MARK: - Preview ModelContainer (in-memory)
 
     @MainActor
     static let previewContainer: ModelContainer = {
+        let schema = Schema([
+            Trip.self, UserProfile.self, Course.self, Round.self,
+            Scorecard.self, Player.self, Team.self, SideGame.self,
+            WarRoomEvent.self, TravelStatus.self, Poll.self,
+            SideBet.self
+        ])
         let config = ModelConfiguration(isStoredInMemoryOnly: true)
-        let container = try! ModelContainer(for: Trip.self, UserProfile.self, configurations: config)
-        return container
+        do {
+            return try ModelContainer(for: schema, configurations: [config])
+        } catch {
+            fatalError("[SampleData] Could not create preview ModelContainer: \(error)")
+        }
     }()
 
     // MARK: - AppState with sample data
@@ -358,17 +299,11 @@ enum SampleData {
         SideGameViewModel(appState: appState ?? makeAppState())
     }
 
-    static func makeWeatherViewModel(appState: AppState? = nil) -> WeatherViewModel {
-        let vm = WeatherViewModel(appState: appState ?? makeAppState())
-        vm.currentWeather = weather
-        return vm
-    }
-
     static func makeWarRoomViewModel(appState: AppState? = nil) -> WarRoomViewModel {
         WarRoomViewModel(appState: appState ?? makeAppState())
     }
 
-    static func makeMetricsViewModel(appState: AppState? = nil) -> MetricsViewModel {
-        MetricsViewModel(appState: appState ?? makeAppState())
+    static func makeChallengesViewModel(appState: AppState? = nil) -> ChallengesViewModel {
+        ChallengesViewModel(appState: appState ?? makeAppState())
     }
 }

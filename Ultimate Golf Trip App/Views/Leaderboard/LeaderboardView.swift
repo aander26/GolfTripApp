@@ -32,6 +32,13 @@ struct LeaderboardView: View {
                 }
             }
             .navigationTitle("Leaderboard")
+            .navigationDestination(for: LeaderboardEntry.self) { entry in
+                if let trip = viewModel.currentTrip {
+                    PlayerDetailView(entry: entry, trip: trip)
+                } else {
+                    ContentUnavailableView("No Trip Selected", systemImage: "exclamationmark.triangle", description: Text("Select a trip to view player details."))
+                }
+            }
         }
     }
 
@@ -49,11 +56,13 @@ struct LeaderboardView: View {
 
                     Section {
                         ForEach(viewModel.overallLeaderboard) { entry in
-                            LeaderboardRowView(
-                                entry: entry,
-                                showNet: viewModel.showingNetScores,
-                                playerColor: viewModel.currentTrip?.player(withId: entry.playerId)?.avatarColor ?? .blue
-                            )
+                            NavigationLink(value: entry) {
+                                LeaderboardRowView(
+                                    entry: entry,
+                                    showNet: viewModel.showingNetScores,
+                                    playerColor: viewModel.currentTrip?.player(withId: entry.playerId)?.avatarColor ?? .blue
+                                )
+                            }
                         }
                     } header: {
                         leaderboardHeader
@@ -104,11 +113,13 @@ struct LeaderboardView: View {
                 List {
                     Section {
                         ForEach(viewModel.roundLeaderboard) { entry in
-                            LeaderboardRowView(
-                                entry: entry,
-                                showNet: viewModel.showingNetScores,
-                                playerColor: viewModel.currentTrip?.player(withId: entry.playerId)?.avatarColor ?? .blue
-                            )
+                            NavigationLink(value: entry) {
+                                LeaderboardRowView(
+                                    entry: entry,
+                                    showNet: viewModel.showingNetScores,
+                                    playerColor: viewModel.currentTrip?.player(withId: entry.playerId)?.avatarColor ?? .blue
+                                )
+                            }
                         }
                     } header: {
                         leaderboardHeader
@@ -126,7 +137,7 @@ struct LeaderboardView: View {
                 ContentUnavailableView(
                     "No Teams",
                     systemImage: "person.3",
-                    description: Text("Add two teams in the Trip tab to see team match play standings.")
+                    description: Text("Add teams in the Trip tab and complete a round to see team standings.")
                 )
             } else {
                 List {
@@ -146,8 +157,18 @@ struct LeaderboardView: View {
                         } else {
                             ForEach(viewModel.teamMatchResults) { roundResult in
                                 DisclosureGroup {
-                                    // Show individual matches for match play formats
-                                    if roundResult.scoringRule.format.isPerPlayerFormat {
+                                    // Show nines matches (ninesAndOverall format, or any per-player format with nines toggle)
+                                    if !roundResult.ninesMatches.isEmpty {
+                                        ForEach(roundResult.ninesMatches) { match in
+                                            NinesMatchRowView(
+                                                match: match,
+                                                trip: viewModel.currentTrip
+                                            )
+                                        }
+                                    }
+
+                                    // Show individual matches for match play formats (without nines)
+                                    if !roundResult.individualMatches.isEmpty {
                                         ForEach(roundResult.individualMatches) { match in
                                             IndividualMatchRowView(
                                                 match: match,
@@ -157,7 +178,17 @@ struct LeaderboardView: View {
                                         }
                                     }
 
-                                    // Show team scores for stroke play / best ball
+                                    // Show team nines scores (stroke play / best ball with F9/B9/OA)
+                                    if !roundResult.teamNinesScores.isEmpty {
+                                        ForEach(roundResult.teamNinesScores) { score in
+                                            TeamNinesScoreRowView(
+                                                score: score,
+                                                allScores: roundResult.teamNinesScores
+                                            )
+                                        }
+                                    }
+
+                                    // Show team scores for stroke play / best ball (without nines)
                                     if !roundResult.teamScores.isEmpty {
                                         let winnerTeamId = roundResult.winningTeamId
                                         ForEach(roundResult.teamScores) { teamScore in

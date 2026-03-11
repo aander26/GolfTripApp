@@ -18,7 +18,9 @@ struct ProcessedScorecard {
     }
 
     init(from scorecard: Scorecard, processedScores: [HoleScore]? = nil) {
-        self.playerId = scorecard.player?.id ?? UUID()
+        // Use a stable fallback UUID derived from the scorecard ID rather than a random one,
+        // so scores for orphaned scorecards don't silently vanish with a different UUID each time
+        self.playerId = scorecard.player?.id ?? scorecard.id
         self.holeScores = processedScores ?? scorecard.holeScores
         self.courseHandicap = scorecard.courseHandicap
         self.isComplete = scorecard.isComplete
@@ -82,11 +84,23 @@ struct ScoringEngine {
         let adjusted1 = calculateStrokePlay(scorecard: player1Card, holes: holes)
         let adjusted2 = calculateStrokePlay(scorecard: player2Card, holes: holes)
 
+        let totalHoles = holes.count
+        guard totalHoles > 0 else {
+            return MatchPlayResult(
+                player1Id: adjusted1.playerId,
+                player2Id: adjusted2.playerId,
+                player1Wins: 0,
+                player2Wins: 0,
+                holesPlayed: 0,
+                totalHoles: 0,
+                result: "No holes"
+            )
+        }
         var p1Wins = 0
         var p2Wins = 0
         var holesPlayed = 0
 
-        for holeNum in 1...18 {
+        for holeNum in 1...totalHoles {
             guard let score1 = adjusted1.score(forHole: holeNum),
                   let score2 = adjusted2.score(forHole: holeNum),
                   score1.isCompleted && score2.isCompleted else { continue }
@@ -100,13 +114,13 @@ struct ScoringEngine {
             }
 
             let margin = abs(p1Wins - p2Wins)
-            let remaining = 18 - holesPlayed
+            let remaining = totalHoles - holesPlayed
             if margin > remaining { break }
         }
 
         let result: String
         let margin = abs(p1Wins - p2Wins)
-        let remaining = 18 - holesPlayed
+        let remaining = totalHoles - holesPlayed
 
         if p1Wins == p2Wins {
             result = "All Square"
@@ -124,6 +138,7 @@ struct ScoringEngine {
             player1Wins: p1Wins,
             player2Wins: p2Wins,
             holesPlayed: holesPlayed,
+            totalHoles: totalHoles,
             result: result
         )
     }

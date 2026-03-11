@@ -66,6 +66,12 @@ struct SettlementView: View {
                     Section("Breakdown by Game") {
                         ForEach(settlement.gameBreakdowns) { breakdown in
                             DisclosureGroup {
+                                // For round-based challenges, show scorecard details
+                                if let winnerId = breakdown.winnerId,
+                                   breakdown.gameType.contains("Round") || breakdown.gameType.contains("Head-to-Head") {
+                                    roundChallengeDetail(breakdown: breakdown, winnerId: winnerId)
+                                }
+
                                 ForEach(breakdown.playerAmounts, id: \.playerId) { entry in
                                     HStack {
                                         playerAvatar(playerId: entry.playerId)
@@ -81,22 +87,7 @@ struct SettlementView: View {
                                     }
                                 }
                             } label: {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(breakdown.gameName)
-                                            .font(.subheadline)
-                                            .fontWeight(.medium)
-                                        Text(breakdown.gameType)
-                                            .font(.caption)
-                                            .foregroundStyle(Theme.textSecondary)
-                                    }
-                                    Spacer()
-                                    if let stakeText = breakdown.stakeText {
-                                        Text(stakeText)
-                                            .font(.caption)
-                                            .foregroundStyle(Theme.primary)
-                                    }
-                                }
+                                breakdownLabel(breakdown)
                             }
                         }
                     }
@@ -155,9 +146,21 @@ struct SettlementView: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(bet.gameName)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
+                HStack(spacing: 6) {
+                    Text(bet.gameName)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    // Gross/Net badge for round-based challenge types
+                    if bet.gameType.contains("(Net)") {
+                        Text("NET")
+                            .font(.system(size: 7, weight: .bold))
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(Color.blue.opacity(0.15))
+                            .foregroundStyle(.blue)
+                            .clipShape(Capsule())
+                    }
+                }
                 if let winnerName = bet.winnerName {
                     if let stakeText = bet.stakeText, !stakeText.isEmpty, stakeText != "Bragging Rights" {
                         Text("\(winnerName) wins \(stakeText)")
@@ -169,6 +172,11 @@ struct SettlementView: View {
                             .foregroundStyle(Theme.textSecondary)
                     }
                 }
+                if !bet.gameType.isEmpty && bet.gameType != "Challenge" {
+                    Text(bet.gameType)
+                        .font(.caption2)
+                        .foregroundStyle(Theme.textSecondary)
+                }
             }
 
             Spacer()
@@ -178,6 +186,103 @@ struct SettlementView: View {
                 .font(.caption)
         }
         .padding(.vertical, 2)
+    }
+
+    // MARK: - Breakdown Helpers
+
+    private func breakdownLabel(_ breakdown: GameBreakdown) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(breakdown.gameName)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    // Gross/Net badge for round-based challenges
+                    if breakdown.gameType.contains("(Net)") {
+                        Text("NET")
+                            .font(.system(size: 8, weight: .bold))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Color.blue.opacity(0.15))
+                            .foregroundStyle(.blue)
+                            .clipShape(Capsule())
+                    } else if breakdown.gameType.contains("Round") || breakdown.gameType.contains("Head-to-Head") {
+                        Text("GROSS")
+                            .font(.system(size: 8, weight: .bold))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
+                            .background(Color.green.opacity(0.15))
+                            .foregroundStyle(.green)
+                            .clipShape(Capsule())
+                    }
+                }
+                Text(breakdown.gameType)
+                    .font(.caption)
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            Spacer()
+            if let winnerName = breakdown.winnerName {
+                HStack(spacing: 4) {
+                    Image(systemName: "trophy.fill")
+                        .font(.caption2)
+                        .foregroundStyle(Theme.warning)
+                    Text(winnerName.split(separator: " ").first.map(String.init) ?? winnerName)
+                        .font(.caption)
+                        .foregroundStyle(Theme.textSecondary)
+                }
+            } else if let stakeText = breakdown.stakeText {
+                Text(stakeText)
+                    .font(.caption)
+                    .foregroundStyle(Theme.primary)
+            }
+        }
+    }
+
+    /// Show scorecard score details for round-based challenges
+    private func roundChallengeDetail(breakdown: GameBreakdown, winnerId: UUID) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            // Find the associated SideBet to get round scorecard data
+            if let trip = trip {
+                let matchingBet = trip.completedSideBets.first { $0.id == breakdown.gameId }
+                if let bet = matchingBet, let round = bet.round {
+                    ForEach(bet.participants, id: \.self) { playerId in
+                        if let scorecard = round.scorecard(forPlayer: playerId),
+                           let player = trip.player(withId: playerId) {
+                            HStack(spacing: 8) {
+                                playerAvatar(playerId: playerId)
+                                Text(player.name)
+                                    .font(.caption)
+                                if playerId == winnerId {
+                                    Image(systemName: "trophy.fill")
+                                        .font(.system(size: 8))
+                                        .foregroundStyle(Theme.warning)
+                                }
+                                Spacer()
+                                if bet.useNetScoring {
+                                    Text("\(scorecard.totalNet) net")
+                                        .font(.caption.bold())
+                                        .foregroundStyle(playerId == winnerId ? .green : Theme.textSecondary)
+                                    Text("(\(scorecard.totalGross) gross)")
+                                        .font(.caption2)
+                                        .foregroundStyle(Theme.textSecondary)
+                                } else {
+                                    Text("\(scorecard.totalGross) gross")
+                                        .font(.caption.bold())
+                                        .foregroundStyle(playerId == winnerId ? .green : Theme.textSecondary)
+                                    if scorecard.totalNet != scorecard.totalGross {
+                                        Text("(\(scorecard.totalNet) net)")
+                                            .font(.caption2)
+                                            .foregroundStyle(Theme.textSecondary)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Divider()
+                        .padding(.vertical, 2)
+                }
+            }
+        }
     }
 
     // MARK: - Empty State

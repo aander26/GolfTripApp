@@ -2,8 +2,6 @@ import SwiftUI
 
 struct WarRoomView: View {
     @Bindable var viewModel: WarRoomViewModel
-    @Bindable var weatherViewModel: WeatherViewModel
-    @Bindable var spotifyViewModel: SpotifyPlaylistViewModel
     @Environment(AppState.self) private var appState
 
     var body: some View {
@@ -13,12 +11,6 @@ struct WarRoomView: View {
                     if viewModel.currentTrip != nil {
                         // Travel Status Bar
                         TravelStatusBar(viewModel: viewModel)
-
-                        // Weather Card
-                        weatherSection
-
-                        // Trip Playlist (Spotify)
-                        SpotifyWarRoomCard(viewModel: spotifyViewModel)
 
                         // Next Up Card
                         if let nextEvent = viewModel.nextEvent {
@@ -70,24 +62,19 @@ struct WarRoomView: View {
             .sheet(isPresented: $viewModel.showingStatusPicker) {
                 StatusPickerSheet(viewModel: viewModel)
             }
-            .task {
-                if weatherViewModel.currentWeather == nil {
-                    await weatherViewModel.fetchWeather()
+            .sheet(isPresented: $viewModel.showingEventDetail) {
+                if let event = viewModel.selectedEvent {
+                    EventDetailView(
+                        event: event,
+                        players: viewModel.currentTrip?.players ?? [],
+                        onDelete: {
+                            viewModel.deleteEvent(event)
+                            viewModel.showingEventDetail = false
+                        }
+                    )
                 }
             }
         }
-    }
-
-    // MARK: - Weather Section
-
-    @ViewBuilder
-    private var weatherSection: some View {
-        NavigationLink {
-            WeatherView(viewModel: weatherViewModel)
-        } label: {
-            WarRoomWeatherCard(weatherViewModel: weatherViewModel)
-        }
-        .buttonStyle(.plain)
     }
 
     // MARK: - Active Polls Section
@@ -163,111 +150,6 @@ struct WarRoomView: View {
                 .multilineTextAlignment(.center)
         }
         .padding(.top, 80)
-    }
-}
-
-// MARK: - War Room Weather Card
-
-struct WarRoomWeatherCard: View {
-    @Bindable var weatherViewModel: WeatherViewModel
-
-    var body: some View {
-        if let weather = weatherViewModel.currentWeather {
-            HStack(spacing: 14) {
-                // Weather icon + temp
-                VStack(spacing: 4) {
-                    Image(systemName: weather.systemIconName)
-                        .font(.title)
-                        .foregroundStyle(Theme.primary)
-                    Text(weather.temperatureFormatted)
-                        .font(.title2.bold())
-                        .foregroundStyle(Theme.textPrimary)
-                }
-                .frame(width: 70)
-
-                // Details
-                VStack(alignment: .leading, spacing: 4) {
-                    if let course = weatherViewModel.selectedCourse {
-                        Text(course.name)
-                            .font(.caption)
-                            .foregroundStyle(Theme.textSecondary)
-                            .lineLimit(1)
-                    }
-
-                    Text(weather.description.capitalized)
-                        .font(.subheadline.bold())
-                        .foregroundStyle(Theme.textPrimary)
-
-                    HStack(spacing: 12) {
-                        Label("\(Int(weather.windSpeed)) mph", systemImage: "wind")
-                        Label("\(Int(weather.precipitationChance * 100))%", systemImage: "cloud.rain")
-                    }
-                    .font(.caption)
-                    .foregroundStyle(Theme.textSecondary)
-                }
-
-                Spacer()
-
-                // Playability badge
-                VStack(spacing: 4) {
-                    Text(weather.playabilityRating.emoji)
-                        .font(.title2)
-                    Text(weather.playabilityRating.rawValue)
-                        .font(.caption2.bold())
-                        .foregroundStyle(playabilityColor(weather.playabilityRating))
-                }
-                .frame(width: 70)
-
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundStyle(Theme.textSecondary.opacity(0.5))
-            }
-            .padding()
-            .cardStyle(padded: false)
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("Weather: \(weather.temperatureFormatted), \(weather.description), wind \(Int(weather.windSpeed)) mph, \(Int(weather.precipitationChance * 100))% rain, playability \(weather.playabilityRating.rawValue)")
-            .accessibilityHint("Tap for full weather details")
-        } else if weatherViewModel.isLoading {
-            HStack {
-                ProgressView()
-                Text("Loading weather...")
-                    .font(.subheadline)
-                    .foregroundStyle(Theme.textSecondary)
-            }
-            .frame(maxWidth: .infinity)
-            .padding()
-            .cardStyle(padded: false)
-        } else {
-            HStack(spacing: 12) {
-                Image(systemName: "cloud.sun.fill")
-                    .font(.title2)
-                    .foregroundStyle(Theme.primary)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Course Weather")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(Theme.textPrimary)
-                    Text("Tap to set up weather data")
-                        .font(.caption)
-                        .foregroundStyle(Theme.textSecondary)
-                }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundStyle(Theme.textSecondary.opacity(0.5))
-            }
-            .padding()
-            .cardStyle(padded: false)
-        }
-    }
-
-    private func playabilityColor(_ rating: PlayabilityRating) -> Color {
-        switch rating {
-        case .excellent: return Theme.success
-        case .good: return Theme.success
-        case .fair: return Theme.warning
-        case .poor: return Color.orange
-        case .unplayable: return Theme.error
-        }
     }
 }
 
@@ -557,9 +439,7 @@ func eventColor(for type: EventType) -> Color {
 #Preview {
     let appState = SampleData.makeAppState()
     WarRoomView(
-        viewModel: SampleData.makeWarRoomViewModel(appState: appState),
-        weatherViewModel: SampleData.makeWeatherViewModel(appState: appState),
-        spotifyViewModel: SpotifyPlaylistViewModel(appState: appState)
+        viewModel: SampleData.makeWarRoomViewModel(appState: appState)
     )
     .environment(appState)
 }

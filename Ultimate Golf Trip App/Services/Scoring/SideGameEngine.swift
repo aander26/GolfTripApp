@@ -209,12 +209,14 @@ struct SideGameEngine {
     /// Track the snake (3-putt tracker). Uses raw Scorecard @Model objects for putt data.
     static func calculateSnake(
         scorecards: [Scorecard],
-        stakes: Double
+        stakes: Double,
+        holeCount: Int = 18
     ) -> [SideGameResult] {
+        guard holeCount > 0 else { return [] }
         var results: [SideGameResult] = []
         var currentSnakeHolder: UUID?
 
-        for holeNum in 1...18 {
+        for holeNum in 1...holeCount {
             for card in scorecards {
                 if let score = card.score(forHole: holeNum),
                    score.isCompleted && score.putts >= 3 {
@@ -232,7 +234,7 @@ struct SideGameEngine {
         if let holder = currentSnakeHolder {
             let otherPlayers = scorecards.filter { $0.player?.id != holder }.count
             results.append(SideGameResult(
-                holeNumber: 18,
+                holeNumber: holeCount,
                 winnerId: holder,
                 amount: -stakes * Double(otherPlayers),
                 description: "Holds snake at end - owes \(otherPlayers) player(s)"

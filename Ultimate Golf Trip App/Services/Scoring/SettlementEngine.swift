@@ -115,6 +115,10 @@ struct SettlementEngine {
         for bet in trip.completedSideBets {
             guard let winnerId = bet.winnerId else { continue }
 
+            // Build descriptive labels for round-based challenges
+            let challengeTypeLabel = challengeTypeDisplayLabel(for: bet)
+            let challengeName = challengeDisplayName(for: bet)
+
             if bet.isPotBet && bet.potAmount > 0 {
                 // Pool challenge: each participant contributes potAmount, winner takes the pool
                 let balances = calculatePotBetBalances(bet: bet)
@@ -126,8 +130,8 @@ struct SettlementEngine {
                 if !playerAmounts.isEmpty {
                     gameBreakdowns.append(GameBreakdown(
                         gameId: bet.id,
-                        gameName: bet.name,
-                        gameType: "Challenge (Pool)",
+                        gameName: challengeName,
+                        gameType: "\(challengeTypeLabel) (Pool)",
                         isMonetary: true,
                         stakeText: bet.potDisplayText,
                         winnerId: winnerId,
@@ -148,8 +152,8 @@ struct SettlementEngine {
                 if stakeIsNonNumeric {
                     nonMonetaryBets.append(GameBreakdown(
                         gameId: UUID(), // unique ID so both entries show
-                        gameName: bet.name,
-                        gameType: "Challenge",
+                        gameName: challengeName,
+                        gameType: challengeTypeLabel,
                         isMonetary: false,
                         stakeText: bet.stake,
                         winnerId: winnerId,
@@ -168,8 +172,8 @@ struct SettlementEngine {
                 if !playerAmounts.isEmpty {
                     gameBreakdowns.append(GameBreakdown(
                         gameId: bet.id,
-                        gameName: bet.name,
-                        gameType: "Challenge",
+                        gameName: challengeName,
+                        gameType: challengeTypeLabel,
                         isMonetary: true,
                         stakeText: bet.stake,
                         winnerId: winnerId,
@@ -185,8 +189,8 @@ struct SettlementEngine {
                 // Non-point challenge (bragging rights, buys dinner, etc.)
                 nonMonetaryBets.append(GameBreakdown(
                     gameId: bet.id,
-                    gameName: bet.name,
-                    gameType: "Challenge",
+                    gameName: challengeName,
+                    gameType: challengeTypeLabel,
                     isMonetary: false,
                     stakeText: bet.stake,
                     winnerId: winnerId,
@@ -387,5 +391,29 @@ struct SettlementEngine {
         }
 
         return payments
+    }
+
+    // MARK: - Challenge Display Helpers
+
+    /// Generate a descriptive type label for a challenge (used in GameBreakdown.gameType).
+    private static func challengeTypeDisplayLabel(for bet: SideBet) -> String {
+        switch bet.challengeType {
+        case .lowRound:
+            let suffix = bet.useNetScoring ? " (Net)" : ""
+            return "Low Round Challenge\(suffix)"
+        case .headToHeadRound:
+            let suffix = bet.useNetScoring ? " (Net)" : ""
+            return "Head-to-Head\(suffix)"
+        default:
+            return "Challenge"
+        }
+    }
+
+    /// Generate a descriptive name for a challenge including round info when applicable.
+    private static func challengeDisplayName(for bet: SideBet) -> String {
+        if bet.isRoundBased, let roundName = bet.roundDisplayName {
+            return "\(bet.name) — \(roundName)"
+        }
+        return bet.name
     }
 }

@@ -1,6 +1,6 @@
 import Foundation
 
-@Observable
+@MainActor @Observable
 class SideGameViewModel {
     var appState: AppState
 
@@ -30,6 +30,7 @@ class SideGameViewModel {
 
     func createSideGame() {
         guard let trip = currentTrip else { return }
+        guard selectedParticipantIds.count >= 2 else { return }
 
         let stakes = Double(stakesAmount) ?? 0
         let round = selectedRoundId.flatMap { roundId in
@@ -85,7 +86,8 @@ class SideGameViewModel {
         case .snake:
             results = SideGameEngine.calculateSnake(
                 scorecards: participantCards,
-                stakes: game.stakes
+                stakes: game.stakes,
+                holeCount: course.holes.count
             )
         case .rabbit:
             results = SideGameEngine.calculateRabbit(
@@ -164,7 +166,11 @@ class SideGameViewModel {
 
     func deleteSideGame(_ gameId: UUID) {
         guard let trip = currentTrip else { return }
+        if !trip.deletedSideGameIds.contains(gameId.uuidString) {
+            trip.deletedSideGameIds.append(gameId.uuidString)
+        }
         trip.sideGames.removeAll { $0.id == gameId }
+        Task { await CloudKitService.shared.deleteRecord(id: gameId) }
         appState.saveContext()
     }
 

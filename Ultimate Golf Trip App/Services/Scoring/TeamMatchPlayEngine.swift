@@ -22,6 +22,20 @@ struct TeamMatchPlayEngine {
         }
     }
 
+    // MARK: - Team Pair Generation
+
+    /// Generate all unique team pairings for round-robin competition.
+    /// For 4 teams: (A,B), (A,C), (A,D), (B,C), (B,D), (C,D) = 6 pairs.
+    static func generateTeamPairs(teams: [Team]) -> [(Team, Team)] {
+        var pairs: [(Team, Team)] = []
+        for i in 0..<teams.count {
+            for j in (i + 1)..<teams.count {
+                pairs.append((teams[i], teams[j]))
+            }
+        }
+        return pairs
+    }
+
     // MARK: - Resolve Scoring Rule
 
     /// Determine the scoring rule for a round: course-level rule takes priority, then trip defaults.
@@ -42,6 +56,8 @@ struct TeamMatchPlayEngine {
     // MARK: - Round-Level Results
 
     /// Calculate team results for a round using the appropriate scoring format.
+    /// Supports 2 or more teams. Per-player formats generate round-robin pairings
+    /// across all team combinations; team-comparison formats compare all teams directly.
     static func calculateRoundResults(
         round: Round,
         course: Course,
@@ -58,11 +74,40 @@ struct TeamMatchPlayEngine {
             teamScores: []
         )
 
-        guard teams.count == 2 else { return emptyResult }
+        guard teams.count >= 2 else { return emptyResult }
+
+        // When nines scoring is enabled, per-player formats use nines calculation;
+        // team-comparison formats compute segment scores in addition to totals.
+        if scoringRule.effectiveUseNines && scoringRule.format != .ninesAndOverall {
+            switch scoringRule.format {
+            case .traditionalMatchPlay, .singlesMatchPlay:
+                return calculateMatchPlayNinesRound(
+                    round: round, course: course, players: players, teams: teams, scoringRule: scoringRule
+                )
+            case .teamStrokePlay:
+                return calculateTeamStrokePlayNinesRound(
+                    round: round, course: course, players: players, teams: teams, scoringRule: scoringRule
+                )
+            case .teamBestBall:
+                return calculateTeamBestBallNinesRound(
+                    round: round, course: course, players: players, teams: teams, scoringRule: scoringRule
+                )
+            case .ninesAndOverall:
+                break // handled below
+            }
+        }
 
         switch scoringRule.format {
         case .traditionalMatchPlay, .singlesMatchPlay:
             return calculateMatchPlayRound(
+                round: round,
+                course: course,
+                players: players,
+                teams: teams,
+                scoringRule: scoringRule
+            )
+        case .ninesAndOverall:
+            return calculateNinesAndOverallRound(
                 round: round,
                 course: course,
                 players: players,
@@ -91,6 +136,8 @@ struct TeamMatchPlayEngine {
     // MARK: - Match Play (Traditional & Singles)
 
     /// Calculate 1v1 match play results (used for both traditional and singles formats).
+    /// For 2 teams: pairs players 1v1. For N>2 teams: generates round-robin pairings
+    /// across every team combination.
     private static func calculateMatchPlayRound(
         round: Round,
         course: Course,
@@ -99,17 +146,22 @@ struct TeamMatchPlayEngine {
         scoringRule: TeamScoringRule
     ) -> RoundTeamMatchResult {
         // Determine pairings
-        let pairings: [MatchPairing]
-        if round.matchPairings.isEmpty {
-            let team1Players = players
-                .filter { $0.team?.id == teams[0].id }
-                .filter { round.playerIds.contains($0.id) }
-            let team2Players = players
-                .filter { $0.team?.id == teams[1].id }
-                .filter { round.playerIds.contains($0.id) }
-            pairings = generatePairings(team1Players: team1Players, team2Players: team2Players)
-        } else {
+        var pairings: [MatchPairing] = []
+
+        if !round.matchPairings.isEmpty {
             pairings = round.matchPairings
+        } else {
+            // Generate round-robin pairings across all team combinations
+            let teamPairs = generateTeamPairs(teams: teams)
+            for (teamA, teamB) in teamPairs {
+                let teamAPlayers = players
+                    .filter { $0.team?.id == teamA.id }
+                    .filter { round.playerIds.contains($0.id) }
+                let teamBPlayers = players
+                    .filter { $0.team?.id == teamB.id }
+                    .filter { round.playerIds.contains($0.id) }
+                pairings.append(contentsOf: generatePairings(team1Players: teamAPlayers, team2Players: teamBPlayers))
+            }
         }
 
         let matches: [IndividualMatchResult] = pairings.compactMap { pairing in
@@ -132,8 +184,8 @@ struct TeamMatchPlayEngine {
                 player2Id: p2.id,
                 player1Name: p1.name,
                 player2Name: p2.name,
-                player1TeamId: p1.team?.id ?? UUID(),
-                player2TeamId: p2.team?.id ?? UUID(),
+                player1TeamId: p1.team?.id ?? p1.id,
+                player2TeamId: p2.team?.id ?? p2.id,
                 matchPlayResult: matchResult
             )
         }
@@ -145,6 +197,92 @@ struct TeamMatchPlayEngine {
             scoringRule: scoringRule,
             individualMatches: matches,
             teamScores: []
+        )
+    }
+
+    // MARK: - Nines & Overall
+
+    /// Calculate nines & overall format: 1v1 net stroke play, scoring front 9, back 9, and overall.
+    /// Supports round-robin pairings for N>2 teams.
+    private static func calculateNinesAndOverallRound(
+        round: Round,
+        course: Course,
+        players: [Player],
+        teams: [Team],
+        scoringRule: TeamScoringRule
+    ) -> RoundTeamMatchResult {
+        // Determine pairings (same approach as match play)
+        var pairings: [MatchPairing] = []
+        if !round.matchPairings.isEmpty {
+            pairings = round.matchPairings
+        } else {
+            let teamPairs = generateTeamPairs(teams: teams)
+            for (teamA, teamB) in teamPairs {
+                let teamAPlayers = players
+                    .filter { $0.team?.id == teamA.id }
+                    .filter { round.playerIds.contains($0.id) }
+                let teamBPlayers = players
+                    .filter { $0.team?.id == teamB.id }
+                    .filter { round.playerIds.contains($0.id) }
+                pairings.append(contentsOf: generatePairings(team1Players: teamAPlayers, team2Players: teamBPlayers))
+            }
+        }
+
+        let ninesMatches: [NinesMatchResult] = pairings.compactMap { pairing in
+            guard let card1 = round.scorecard(forPlayer: pairing.player1Id),
+                  let card2 = round.scorecard(forPlayer: pairing.player2Id),
+                  let p1 = players.first(where: { $0.id == pairing.player1Id }),
+                  let p2 = players.first(where: { $0.id == pairing.player2Id })
+            else { return nil }
+
+            guard card1.holesCompleted > 0 || card2.holesCompleted > 0 else { return nil }
+
+            // Calculate net scores using handicap-adjusted stroke play
+            let adjusted1 = ScoringEngine.calculateStrokePlay(scorecard: card1, holes: course.holes)
+            let adjusted2 = ScoringEngine.calculateStrokePlay(scorecard: card2, holes: course.holes)
+
+            // Calculate front 9, back 9, and overall net totals
+            let front9Scores1 = adjusted1.holeScores.filter { $0.holeNumber <= 9 && $0.isCompleted }
+            let front9Scores2 = adjusted2.holeScores.filter { $0.holeNumber <= 9 && $0.isCompleted }
+            let back9Scores1 = adjusted1.holeScores.filter { $0.holeNumber > 9 && $0.isCompleted }
+            let back9Scores2 = adjusted2.holeScores.filter { $0.holeNumber > 9 && $0.isCompleted }
+
+            let p1Front9Net = front9Scores1.reduce(0) { $0 + $1.netStrokes }
+            let p2Front9Net = front9Scores2.reduce(0) { $0 + $1.netStrokes }
+            let p1Back9Net = back9Scores1.reduce(0) { $0 + $1.netStrokes }
+            let p2Back9Net = back9Scores2.reduce(0) { $0 + $1.netStrokes }
+            let p1OverallNet = p1Front9Net + p1Back9Net
+            let p2OverallNet = p2Front9Net + p2Back9Net
+
+            let holesCompleted = min(
+                front9Scores1.count + back9Scores1.count,
+                front9Scores2.count + back9Scores2.count
+            )
+
+            return NinesMatchResult(
+                player1Id: p1.id,
+                player2Id: p2.id,
+                player1Name: p1.name,
+                player2Name: p2.name,
+                player1TeamId: p1.team?.id ?? p1.id,
+                player2TeamId: p2.team?.id ?? p2.id,
+                player1Front9Net: p1Front9Net,
+                player2Front9Net: p2Front9Net,
+                player1Back9Net: p1Back9Net,
+                player2Back9Net: p2Back9Net,
+                player1OverallNet: p1OverallNet,
+                player2OverallNet: p2OverallNet,
+                holesCompleted: holesCompleted,
+                totalHoles: course.holes.count
+            )
+        }
+
+        return RoundTeamMatchResult(
+            id: round.id,
+            roundLabel: course.name,
+            courseName: course.name,
+            scoringRule: scoringRule,
+            ninesMatches: ninesMatches
         )
     }
 
@@ -257,11 +395,186 @@ struct TeamMatchPlayEngine {
         )
     }
 
+    // MARK: - Match Play with Nines (Traditional & Singles)
+
+    /// Calculate match play with F9/B9/OA scoring.
+    /// For each 1v1 pairing, compare net strokes per segment (front 9, back 9, overall).
+    /// Produces NinesMatchResult entries so the existing nines point logic handles scoring.
+    private static func calculateMatchPlayNinesRound(
+        round: Round,
+        course: Course,
+        players: [Player],
+        teams: [Team],
+        scoringRule: TeamScoringRule
+    ) -> RoundTeamMatchResult {
+        // Determine pairings (same approach as regular match play)
+        var pairings: [MatchPairing] = []
+        if !round.matchPairings.isEmpty {
+            pairings = round.matchPairings
+        } else {
+            let teamPairs = generateTeamPairs(teams: teams)
+            for (teamA, teamB) in teamPairs {
+                let teamAPlayers = players.filter { $0.team?.id == teamA.id }.filter { round.playerIds.contains($0.id) }
+                let teamBPlayers = players.filter { $0.team?.id == teamB.id }.filter { round.playerIds.contains($0.id) }
+                pairings.append(contentsOf: generatePairings(team1Players: teamAPlayers, team2Players: teamBPlayers))
+            }
+        }
+
+        // Reuse the same net stroke comparison as ninesAndOverall
+        let ninesMatches: [NinesMatchResult] = pairings.compactMap { pairing in
+            guard let card1 = round.scorecard(forPlayer: pairing.player1Id),
+                  let card2 = round.scorecard(forPlayer: pairing.player2Id),
+                  let p1 = players.first(where: { $0.id == pairing.player1Id }),
+                  let p2 = players.first(where: { $0.id == pairing.player2Id })
+            else { return nil }
+            guard card1.holesCompleted > 0 || card2.holesCompleted > 0 else { return nil }
+
+            let adjusted1 = ScoringEngine.calculateStrokePlay(scorecard: card1, holes: course.holes)
+            let adjusted2 = ScoringEngine.calculateStrokePlay(scorecard: card2, holes: course.holes)
+
+            let front9Scores1 = adjusted1.holeScores.filter { $0.holeNumber <= 9 && $0.isCompleted }
+            let front9Scores2 = adjusted2.holeScores.filter { $0.holeNumber <= 9 && $0.isCompleted }
+            let back9Scores1 = adjusted1.holeScores.filter { $0.holeNumber > 9 && $0.isCompleted }
+            let back9Scores2 = adjusted2.holeScores.filter { $0.holeNumber > 9 && $0.isCompleted }
+
+            let p1Front9Net = front9Scores1.reduce(0) { $0 + $1.netStrokes }
+            let p2Front9Net = front9Scores2.reduce(0) { $0 + $1.netStrokes }
+            let p1Back9Net = back9Scores1.reduce(0) { $0 + $1.netStrokes }
+            let p2Back9Net = back9Scores2.reduce(0) { $0 + $1.netStrokes }
+
+            let holesCompleted = min(
+                front9Scores1.count + back9Scores1.count,
+                front9Scores2.count + back9Scores2.count
+            )
+
+            return NinesMatchResult(
+                player1Id: p1.id,
+                player2Id: p2.id,
+                player1Name: p1.name,
+                player2Name: p2.name,
+                player1TeamId: p1.team?.id ?? p1.id,
+                player2TeamId: p2.team?.id ?? p2.id,
+                player1Front9Net: p1Front9Net,
+                player2Front9Net: p2Front9Net,
+                player1Back9Net: p1Back9Net,
+                player2Back9Net: p2Back9Net,
+                player1OverallNet: p1Front9Net + p1Back9Net,
+                player2OverallNet: p2Front9Net + p2Back9Net,
+                holesCompleted: holesCompleted,
+                totalHoles: course.holes.count
+            )
+        }
+
+        return RoundTeamMatchResult(
+            id: round.id,
+            roundLabel: course.name,
+            courseName: course.name,
+            scoringRule: scoringRule,
+            ninesMatches: ninesMatches
+        )
+    }
+
+    // MARK: - Team Stroke Play with Nines
+
+    /// Calculate team stroke play with F9/B9/OA scoring.
+    /// Computes team net totals for each segment, then uses TeamNinesScore for pairwise comparison.
+    private static func calculateTeamStrokePlayNinesRound(
+        round: Round,
+        course: Course,
+        players: [Player],
+        teams: [Team],
+        scoringRule: TeamScoringRule
+    ) -> RoundTeamMatchResult {
+        let teamNinesScores: [TeamNinesScore] = teams.map { team in
+            let teamPlayers = players
+                .filter { $0.team?.id == team.id }
+                .filter { round.playerIds.contains($0.id) }
+
+            var f9Net = 0, b9Net = 0
+
+            for player in teamPlayers {
+                guard let card = round.scorecard(forPlayer: player.id) else { continue }
+                let processed = ScoringEngine.calculateStrokePlay(scorecard: card, holes: course.holes)
+                let front9 = processed.holeScores.filter { $0.holeNumber <= 9 && $0.isCompleted }
+                let back9 = processed.holeScores.filter { $0.holeNumber > 9 && $0.isCompleted }
+                f9Net += front9.reduce(0) { $0 + $1.netStrokes }
+                b9Net += back9.reduce(0) { $0 + $1.netStrokes }
+            }
+
+            return TeamNinesScore(
+                teamId: team.id, teamName: team.name, teamColor: team.color,
+                front9Net: f9Net, back9Net: b9Net, overallNet: f9Net + b9Net
+            )
+        }
+
+        let hasScores = teamNinesScores.contains { $0.overallNet > 0 }
+
+        return RoundTeamMatchResult(
+            id: round.id,
+            roundLabel: course.name,
+            courseName: course.name,
+            scoringRule: scoringRule,
+            teamNinesScores: hasScores ? teamNinesScores : []
+        )
+    }
+
+    // MARK: - Team Best Ball with Nines
+
+    /// Calculate team best ball with F9/B9/OA scoring.
+    /// Computes best-ball per hole, then splits into F9/B9/Overall segments.
+    private static func calculateTeamBestBallNinesRound(
+        round: Round,
+        course: Course,
+        players: [Player],
+        teams: [Team],
+        scoringRule: TeamScoringRule
+    ) -> RoundTeamMatchResult {
+        let teamNinesScores: [TeamNinesScore] = teams.map { team in
+            let teamPlayers = players
+                .filter { $0.team?.id == team.id }
+                .filter { round.playerIds.contains($0.id) }
+            let teamScorecards = teamPlayers.compactMap { round.scorecard(forPlayer: $0.id) }
+
+            var f9Net = 0, b9Net = 0
+
+            for hole in course.holes {
+                if let bestNet = ScoringEngine.bestBallScore(
+                    teamScorecards: teamScorecards,
+                    holeNumber: hole.number
+                ) {
+                    if hole.number <= 9 {
+                        f9Net += bestNet
+                    } else {
+                        b9Net += bestNet
+                    }
+                }
+            }
+
+            return TeamNinesScore(
+                teamId: team.id, teamName: team.name, teamColor: team.color,
+                front9Net: f9Net, back9Net: b9Net, overallNet: f9Net + b9Net
+            )
+        }
+
+        let hasScores = teamNinesScores.contains { $0.overallNet > 0 }
+
+        return RoundTeamMatchResult(
+            id: round.id,
+            roundLabel: course.name,
+            courseName: course.name,
+            scoringRule: scoringRule,
+            teamNinesScores: hasScores ? teamNinesScores : []
+        )
+    }
+
     // MARK: - Trip-Level Team Standings
 
     /// Generate trip-level team points standings across all rounds.
+    /// Supports 2 or more teams. For per-player formats, matches from all team
+    /// combinations are included. For team-comparison formats, each team is
+    /// ranked against all others per round.
     static func generateTeamPointsStandings(trip: Trip) -> [TeamPointsStanding] {
-        guard trip.teams.count == 2 else { return [] }
+        guard trip.teams.count >= 2 else { return [] }
 
         var roundResults: [RoundTeamMatchResult] = []
         for (index, round) in trip.rounds.enumerated() {
@@ -277,7 +590,7 @@ struct TeamMatchPlayEngine {
             )
             result.roundLabel = "R\(index + 1): \(course.name)"
 
-            let hasContent = !result.individualMatches.isEmpty || !result.teamScores.isEmpty
+            let hasContent = !result.individualMatches.isEmpty || !result.ninesMatches.isEmpty || !result.teamScores.isEmpty || !result.teamNinesScores.isEmpty
             if hasContent {
                 roundResults.append(result)
             }
@@ -292,8 +605,45 @@ struct TeamMatchPlayEngine {
             for roundResult in roundResults {
                 totalPoints += roundResult.pointsForTeam(team.id)
 
-                if roundResult.scoringRule.format.isPerPlayerFormat {
+                if roundResult.scoringRule.effectiveUseNines && roundResult.scoringRule.format.isPerPlayerFormat {
+                    // Count segment wins for per-player nines formats (ninesAndOverall, match play with nines)
+                    for match in roundResult.ninesMatches {
+                        guard match.player1TeamId == team.id || match.player2TeamId == team.id else { continue }
+                        // Front 9
+                        if let winner = match.front9WinnerTeamId {
+                            if winner == team.id { won += 1 } else { lost += 1 }
+                        } else if match.front9Halved { halved += 1 }
+                        // Back 9
+                        if let winner = match.back9WinnerTeamId {
+                            if winner == team.id { won += 1 } else { lost += 1 }
+                        } else if match.back9Halved { halved += 1 }
+                        // Overall
+                        if let winner = match.overallWinnerTeamId {
+                            if winner == team.id { won += 1 } else { lost += 1 }
+                        } else if match.overallHalved { halved += 1 }
+                    }
+                } else if roundResult.scoringRule.effectiveUseNines && !roundResult.scoringRule.format.isPerPlayerFormat {
+                    // Team-comparison formats with nines: count segment wins vs each other team
+                    guard roundResult.teamNinesScores.count >= 2,
+                          let myScore = roundResult.teamNinesScores.first(where: { $0.teamId == team.id }) else { continue }
+                    for otherScore in roundResult.teamNinesScores where otherScore.teamId != team.id {
+                        // F9
+                        if myScore.front9Net < otherScore.front9Net { won += 1 }
+                        else if myScore.front9Net > otherScore.front9Net { lost += 1 }
+                        else { halved += 1 }
+                        // B9
+                        if myScore.back9Net < otherScore.back9Net { won += 1 }
+                        else if myScore.back9Net > otherScore.back9Net { lost += 1 }
+                        else { halved += 1 }
+                        // Overall
+                        if myScore.overallNet < otherScore.overallNet { won += 1 }
+                        else if myScore.overallNet > otherScore.overallNet { lost += 1 }
+                        else { halved += 1 }
+                    }
+                } else if roundResult.scoringRule.format.isPerPlayerFormat {
+                    // Count match wins (only for matches involving this team)
                     for match in roundResult.individualMatches {
+                        guard match.player1TeamId == team.id || match.player2TeamId == team.id else { continue }
                         guard match.matchPlayResult.isComplete else { continue }
                         if let winnerId = match.winningTeamId {
                             if winnerId == team.id { won += 1 } else { lost += 1 }
@@ -302,14 +652,20 @@ struct TeamMatchPlayEngine {
                         }
                     }
                 } else {
-                    guard roundResult.teamScores.count == 2 else { continue }
-                    let sorted = roundResult.teamScores.sorted { $0.totalNetScore < $1.totalNetScore }
-                    if sorted[0].totalNetScore == sorted[1].totalNetScore {
-                        halved += 1
-                    } else if sorted[0].teamId == team.id {
-                        won += 1
-                    } else {
-                        lost += 1
+                    // Team-comparison formats (stroke play / best ball): rank among all teams
+                    guard roundResult.teamScores.count >= 2 else { continue }
+                    let myScore = roundResult.teamScores.first { $0.teamId == team.id }
+                    guard let myScore else { continue }
+
+                    // Count wins/losses against each other team
+                    for otherScore in roundResult.teamScores where otherScore.teamId != team.id {
+                        if myScore.totalNetScore < otherScore.totalNetScore {
+                            won += 1
+                        } else if myScore.totalNetScore > otherScore.totalNetScore {
+                            lost += 1
+                        } else {
+                            halved += 1
+                        }
                     }
                 }
             }

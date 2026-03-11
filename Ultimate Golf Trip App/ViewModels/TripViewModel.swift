@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-@Observable
+@MainActor @Observable
 class TripViewModel {
     var appState: AppState
 
@@ -26,10 +26,32 @@ class TripViewModel {
     var newCourseLongitude: Double?
     /// Matched course data from bundled database (set by search service)
     var matchedCourseData: CourseData?
+    /// Available tee boxes for the matched course (generated from database)
+    var availableTeeBoxes: [TeeBox] = []
+    /// Selected tee box name during course creation
+    var selectedTeeBoxName: String?
 
-    // Team creation
+    // Course editing
+    var showingEditCourse = false
+    var editingCourse: Course?
+
+    // Team creation / editing
     var newTeamName: String = ""
     var newTeamColor: TeamColor = .blue
+    var showingEditTeam = false
+    var editingTeam: Team?
+
+    // Player editing
+    var showingEditPlayer = false
+    var editingPlayer: Player?
+    var editPlayerName: String = ""
+    var editPlayerHandicap: String = ""
+    var editPlayerColor: PlayerColor = .blue
+    var editPlayerTeamId: UUID?
+
+    // Team editing
+    var editTeamName: String = ""
+    var editTeamColor: TeamColor = .blue
 
     var showingAddPlayer = false
     var showingAddCourse = false
@@ -51,8 +73,11 @@ class TripViewModel {
     // MARK: - Trip Management
 
     func createTrip() {
+        let trimmedName = tripName.trimmingCharacters(in: .whitespaces)
+        guard !trimmedName.isEmpty else { return }
+
         let trip = Trip(
-            name: tripName,
+            name: trimmedName,
             startDate: startDate,
             endDate: endDate,
             ownerProfileId: appState.currentUser?.id
@@ -75,6 +100,7 @@ class TripViewModel {
 
         Task {
             await appState.saveTripToCloud(trip)
+            await appState.subscribeToTrip(trip)
         }
     }
 
@@ -88,13 +114,19 @@ class TripViewModel {
 
     func leaveTrip(_ trip: Trip) {
         guard let myPlayer = appState.myPlayer(in: trip) else { return }
-        trip.removePlayer(id: myPlayer.id)
-        appState.saveContext()
+        let tripId = trip.id
+        let playerId = myPlayer.id
+        trip.removePlayer(id: playerId)
 
-        // If we were viewing this trip, switch away
-        if appState.currentTrip?.id == trip.id {
-            appState.trips.removeAll { $0.id == trip.id }
-            appState.currentTrip = appState.trips.first
+        // Push the updated trip (with player removed) BEFORE deleting locally,
+        // then unsubscribe and clean up. This prevents the race condition where
+        // local deletion happens before the push completes.
+        Task {
+            await appState.saveTripToCloud(trip)
+            try? await CloudKitService.shared.unsubscribeFromTripChanges(tripId: tripId)
+            await MainActor.run {
+                appState.deleteTrip(id: tripId)
+            }
         }
     }
 
@@ -108,7 +140,7 @@ class TripViewModel {
             throw JoinTripError.tripNotFound
         }
 
-        // Check if user is already a player in this trip
+        // Check if user is already a linked player in this trip
         if let user = appState.currentUser,
            trip.players.contains(where: { $0.userProfileId == user.id }) {
             throw JoinTripError.alreadyJoined
@@ -118,27 +150,45 @@ class TripViewModel {
         await MainActor.run {
             appState.addTrip(trip)
 
-            // Add current user as a player
             if let user = appState.currentUser {
-                let player = Player(
-                    name: user.name,
-                    handicapIndex: user.handicapIndex,
-                    avatarColor: user.avatarColor,
-                    userProfileId: user.id
-                )
-                trip.addPlayer(player)
+                // Check if a manually-created player with the same name already exists.
+                // If so, link it to this user instead of creating a duplicate.
+                let normalizedName = user.name.trimmingCharacters(in: .whitespaces).lowercased()
+                if let existingPlayer = trip.players.first(where: {
+                    $0.userProfileId == nil &&
+                    $0.name.trimmingCharacters(in: .whitespaces).lowercased() == normalizedName
+                }) {
+                    existingPlayer.userProfileId = user.id
+                    existingPlayer.handicapIndex = user.handicapIndex
+                    existingPlayer.avatarColor = user.avatarColor
+                } else {
+                    // No matching player — create a new one
+                    let player = Player(
+                        name: user.name,
+                        handicapIndex: user.handicapIndex,
+                        avatarColor: user.avatarColor,
+                        userProfileId: user.id
+                    )
+                    trip.addPlayer(player)
+                }
                 appState.saveContext()
             }
         }
 
-        // Explicitly push the joined trip to CloudKit (it might not be currentTrip when debounce fires)
+        // Push the joined trip to CloudKit and subscribe to future changes
         await appState.saveTripToCloud(trip)
+        await appState.subscribeToTrip(trip)
     }
 
     // MARK: - Player Management
 
     func addPlayer() {
-        guard !newPlayerName.isEmpty, let trip = currentTrip else { return }
+        let trimmedName = newPlayerName.trimmingCharacters(in: .whitespaces)
+        guard !trimmedName.isEmpty, let trip = currentTrip else { return }
+        // Prevent duplicate player names (case-insensitive)
+        let normalizedName = trimmedName.lowercased()
+        guard !trip.players.contains(where: { $0.name.trimmingCharacters(in: .whitespaces).lowercased() == normalizedName }) else { return }
+        newPlayerName = trimmedName
         let handicap = Double(newPlayerHandicap) ?? 0.0
 
         // Find team object if teamId is set
@@ -175,6 +225,43 @@ class TripViewModel {
         appState.saveContext()
     }
 
+    /// Prepare the edit form for an existing player
+    func startEditingPlayer(_ player: Player) {
+        editingPlayer = player
+        editPlayerName = player.name
+        editPlayerHandicap = player.handicapIndex == 0 ? "" : String(format: "%.1f", player.handicapIndex)
+        editPlayerColor = player.avatarColor
+        editPlayerTeamId = player.teamId
+        showingEditPlayer = true
+    }
+
+    /// Save edits to an existing player
+    func savePlayerEdits() {
+        guard let player = editingPlayer else { return }
+        player.name = editPlayerName.trimmingCharacters(in: .whitespaces)
+        player.handicapIndex = Double(editPlayerHandicap) ?? 0.0
+        player.avatarColor = editPlayerColor
+
+        // Update team assignment
+        if let teamId = editPlayerTeamId {
+            player.team = currentTrip?.teams.first { $0.id == teamId }
+        } else {
+            player.team = nil
+        }
+
+        appState.saveContext()
+        resetEditPlayerForm()
+    }
+
+    private func resetEditPlayerForm() {
+        editingPlayer = nil
+        editPlayerName = ""
+        editPlayerHandicap = ""
+        editPlayerColor = .blue
+        editPlayerTeamId = nil
+        showingEditPlayer = false
+    }
+
     // MARK: - Course Management
 
     func addCourse() {
@@ -182,6 +269,7 @@ class TripViewModel {
 
         // Use matched course data for holes if available, otherwise defaults
         let holes: [Hole]
+        var teeBoxes: [TeeBox] = []
         if let data = matchedCourseData {
             holes = data.holes.map { holeData in
                 Hole(
@@ -191,6 +279,8 @@ class TripViewModel {
                     handicapRating: holeData.handicapRating
                 )
             }
+            // Generate tee boxes from the matched database course
+            teeBoxes = GolfCourseDatabase.shared.teeBoxes(for: data)
         } else {
             holes = Course.defaultEighteenHoles()
         }
@@ -203,7 +293,9 @@ class TripViewModel {
             city: newCourseCity,
             state: newCourseState,
             latitude: newCourseLatitude,
-            longitude: newCourseLongitude
+            longitude: newCourseLongitude,
+            teeBoxes: teeBoxes,
+            selectedTeeBoxName: selectedTeeBoxName
         )
         course.trip = trip
         trip.courses.append(course)
@@ -213,13 +305,51 @@ class TripViewModel {
 
     func removeCourse(_ course: Course) {
         guard let trip = currentTrip else { return }
+        if !trip.deletedCourseIds.contains(course.id.uuidString) {
+            trip.deletedCourseIds.append(course.id.uuidString)
+        }
         trip.courses.removeAll { $0.id == course.id }
+        Task { await CloudKitService.shared.deleteRecord(id: course.id) }
         appState.saveContext()
+    }
+
+    /// Update an existing course's properties
+    func updateCourse(_ course: Course, name: String, slopeRating: Double, courseRating: Double, holes: [Hole], teeBoxes: [TeeBox], selectedTeeBoxName: String?) {
+        guard currentTrip != nil else { return }
+        course.name = name
+        course.slopeRating = slopeRating
+        course.courseRating = courseRating
+        course.holes = holes
+        course.teeBoxes = teeBoxes
+        course.selectedTeeBoxName = selectedTeeBoxName
+        appState.saveContext()
+    }
+
+    /// Apply a tee box to an existing course (updates slope, rating, and yardages)
+    func applyTeeBox(_ teeBox: TeeBox, to course: Course) {
+        guard currentTrip != nil else { return }
+        course.applyTeeBox(teeBox)
+        appState.saveContext()
+    }
+
+    /// Prepare the edit form for an existing course
+    func startEditingCourse(_ course: Course) {
+        editingCourse = course
+        newCourseName = course.name
+        newCourseCity = course.city
+        newCourseState = course.state
+        newCourseSlopeRating = String(format: "%.0f", course.slopeRating)
+        newCourseCourseRating = String(format: "%.1f", course.courseRating)
+        newCourseLatitude = course.latitude
+        newCourseLongitude = course.longitude
+        availableTeeBoxes = course.teeBoxes
+        selectedTeeBoxName = course.selectedTeeBoxName
+        showingEditCourse = true
     }
 
     func updateCourseHole(_ course: Course, holeIndex: Int, par: Int, yardage: Int, handicapRating: Int) {
         guard currentTrip != nil,
-              holeIndex < course.holes.count else { return }
+              holeIndex >= 0, holeIndex < course.holes.count else { return }
 
         course.holes[holeIndex].par = par
         course.holes[holeIndex].yardage = yardage
@@ -240,6 +370,9 @@ class TripViewModel {
 
     func removeTeam(_ team: Team) {
         guard let trip = currentTrip else { return }
+        if !trip.deletedTeamIds.contains(team.id.uuidString) {
+            trip.deletedTeamIds.append(team.id.uuidString)
+        }
         // Unassign players from this team
         for player in trip.players {
             if player.team?.id == team.id {
@@ -247,7 +380,32 @@ class TripViewModel {
             }
         }
         trip.teams.removeAll { $0.id == team.id }
+        Task { await CloudKitService.shared.deleteRecord(id: team.id) }
         appState.saveContext()
+    }
+
+    /// Prepare the edit form for an existing team
+    func startEditingTeam(_ team: Team) {
+        editingTeam = team
+        editTeamName = team.name
+        editTeamColor = team.color
+        showingEditTeam = true
+    }
+
+    /// Save edits to an existing team
+    func saveTeamEdits() {
+        guard let team = editingTeam else { return }
+        team.name = editTeamName.trimmingCharacters(in: .whitespaces)
+        team.color = editTeamColor
+        appState.saveContext()
+        resetEditTeamForm()
+    }
+
+    private func resetEditTeamForm() {
+        editingTeam = nil
+        editTeamName = ""
+        editTeamColor = .blue
+        showingEditTeam = false
     }
 
     // MARK: - Trip Rules
@@ -290,7 +448,11 @@ class TripViewModel {
         newCourseLatitude = nil
         newCourseLongitude = nil
         matchedCourseData = nil
+        availableTeeBoxes = []
+        selectedTeeBoxName = nil
+        editingCourse = nil
         showingAddCourse = false
+        showingEditCourse = false
     }
 
     private func resetTeamForm() {

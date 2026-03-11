@@ -38,6 +38,78 @@ struct RoundSetupView: View {
                             .foregroundStyle(.secondary)
                     }
 
+                    // Team Scoring Options (shown for team-based formats when teams exist)
+                    if viewModel.selectedFormat.requiresTeams && !trip.teams.isEmpty {
+                        Section {
+                            Picker("Team Scoring", selection: $viewModel.selectedTeamScoringFormat) {
+                                ForEach(TeamScoringFormat.allCases) { format in
+                                    Text(format.shortName).tag(format)
+                                }
+                            }
+                            .pickerStyle(.navigationLink)
+
+                            Text(viewModel.selectedTeamScoringFormat.description)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } header: {
+                            Text("Team Competition")
+                        }
+
+                        // Points Configuration
+                        if viewModel.selectedTeamScoringFormat == .ninesAndOverall {
+                            Section("Points (Nines & Overall)") {
+                                ninesPointsFields
+                                Text("Each 1v1 match scores front 9, back 9, and overall separately. Max 5 pts per match.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } else {
+                            Section("Scoring Structure") {
+                                Picker("Points Structure", selection: $viewModel.teamUseNinesAndOverall) {
+                                    Text("Per Match").tag(false)
+                                    Text("Front 9 / Back 9 / Overall").tag(true)
+                                }
+                                .pickerStyle(.segmented)
+                            }
+
+                            if viewModel.teamUseNinesAndOverall {
+                                Section("Points (Front 9 / Back 9 / Overall)") {
+                                    ninesPointsFields
+                                    Text("Points awarded for winning each segment: front 9, back 9, and overall 18.")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            } else {
+                                Section("Points") {
+                                    HStack {
+                                        Text(viewModel.selectedTeamScoringFormat.pointsLabel + " (Win)")
+                                        Spacer()
+                                        TextField("1.0", text: $viewModel.teamPointsPerWin)
+                                            .keyboardType(.decimalPad)
+                                            .multilineTextAlignment(.trailing)
+                                            .frame(width: 50)
+                                    }
+                                    HStack {
+                                        Text("Halve")
+                                        Spacer()
+                                        TextField("0.5", text: $viewModel.teamPointsPerHalve)
+                                            .keyboardType(.decimalPad)
+                                            .multilineTextAlignment(.trailing)
+                                            .frame(width: 50)
+                                    }
+                                    HStack {
+                                        Text("Loss")
+                                        Spacer()
+                                        TextField("0.0", text: $viewModel.teamPointsPerLoss)
+                                            .keyboardType(.decimalPad)
+                                            .multilineTextAlignment(.trailing)
+                                            .frame(width: 50)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     // Player Selection
                     Section("Players") {
                         if trip.players.isEmpty {
@@ -126,6 +198,46 @@ struct RoundSetupView: View {
                     .fontWeight(.semibold)
                 }
             }
+        }
+    }
+}
+
+// MARK: - Subviews
+
+extension RoundSetupView {
+    @ViewBuilder
+    var ninesPointsFields: some View {
+        HStack {
+            Text("Front 9 / Back 9 Win")
+            Spacer()
+            TextField("1.0", text: $viewModel.teamPointsPerNineWin)
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.trailing)
+                .frame(width: 50)
+        }
+        HStack {
+            Text("Front 9 / Back 9 Halve")
+            Spacer()
+            TextField("0.5", text: $viewModel.teamPointsPerNineHalve)
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.trailing)
+                .frame(width: 50)
+        }
+        HStack {
+            Text("Overall 18 Win")
+            Spacer()
+            TextField("3.0", text: $viewModel.teamPointsPerOverallWin)
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.trailing)
+                .frame(width: 50)
+        }
+        HStack {
+            Text("Overall 18 Halve")
+            Spacer()
+            TextField("1.5", text: $viewModel.teamPointsPerOverallHalve)
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.trailing)
+                .frame(width: 50)
         }
     }
 }

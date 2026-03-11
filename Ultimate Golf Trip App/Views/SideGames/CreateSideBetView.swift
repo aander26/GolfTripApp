@@ -1,159 +1,298 @@
 import SwiftUI
 
 struct CreateSideBetView: View {
-    @Bindable var viewModel: MetricsViewModel
+    @Bindable var viewModel: ChallengesViewModel
     @Environment(\.dismiss) private var dismiss
+
+    /// Scorecard-based challenge types.
+    private var scorecardTypes: [BetType] {
+        [.lowRound, .headToHeadRound, .mostBirdies, .fewestPutts, .fewest3Putts, .most3Putts]
+    }
+
+    /// Manual / custom challenge types.
+    private var manualTypes: [BetType] {
+        [.custom]
+    }
+
+    private var canSave: Bool {
+        guard !viewModel.newBetName.isEmpty,
+              viewModel.newBetParticipants.count >= 2 else { return false }
+        if viewModel.newBetType.isRoundBased {
+            guard viewModel.newBetRoundId != nil else { return false }
+        }
+        if viewModel.newBetType.requiresTwoPlayers {
+            guard viewModel.newBetParticipants.count == 2 else { return false }
+        }
+        if viewModel.newBetType.isCustom {
+            guard !viewModel.newBetCustomMetricName.isEmpty else { return false }
+        }
+        return true
+    }
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Challenge Name") {
-                    TextField("e.g. Most Birdies", text: $viewModel.newBetName)
-                }
-
-                Section("Metric") {
-                    if viewModel.allMetrics.isEmpty {
-                        Text("Add some tracked stats first!")
+                // MARK: - Challenge Type
+                Section {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Scorecard-Based")
+                            .font(.caption.bold())
                             .foregroundStyle(.secondary)
-                    } else {
-                        Picker("Based on", selection: $viewModel.newBetMetricId) {
-                            Text("Select a stat").tag(UUID?.none)
-                            ForEach(viewModel.allMetrics) { metric in
-                                HStack {
-                                    Text(metric.icon)
-                                    Text(metric.name)
-                                }
-                                .tag(UUID?.some(metric.id))
+
+                        FlowLayout(spacing: 8) {
+                            ForEach(scorecardTypes) { type in
+                                challengeTypeChip(type)
+                            }
+                        }
+
+                        Text("Custom / Manual")
+                            .font(.caption.bold())
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 4)
+
+                        FlowLayout(spacing: 8) {
+                            ForEach(manualTypes) { type in
+                                challengeTypeChip(type)
                             }
                         }
                     }
-                }
-
-                Section("Challenge Type") {
-                    Picker("Type", selection: $viewModel.newBetType) {
-                        ForEach(BetType.allCases) { type in
-                            VStack(alignment: .leading) {
-                                Text(type.displayName)
-                            }
-                            .tag(type)
-                        }
-                    }
-
+                    .padding(.vertical, 4)
+                } header: {
+                    Text("Challenge Type")
+                } footer: {
                     Text(viewModel.newBetType.description)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                }
 
-                    if viewModel.newBetType == .closestToTarget || viewModel.newBetType == .overUnder {
-                        TextField("Target Value", text: $viewModel.newBetTargetValue)
-                            .keyboardType(.decimalPad)
+                // MARK: - Challenge Name
+                Section("Challenge Name") {
+                    TextField("e.g. Low Round Day 1", text: $viewModel.newBetName)
+                }
+
+                // MARK: - Round Selection (round-based only)
+                if viewModel.newBetType.isRoundBased {
+                    Section("Round") {
+                        if let trip = viewModel.currentTrip, !trip.rounds.isEmpty {
+                            Picker("Round", selection: $viewModel.newBetRoundId) {
+                                Text("Select a round").tag(UUID?.none)
+                                ForEach(trip.rounds) { round in
+                                    Text("\(round.course?.name ?? "Unknown") — \(round.formattedDate)")
+                                        .tag(UUID?.some(round.id))
+                                }
+                            }
+
+                            if viewModel.newBetType.supportsNetScoring {
+                                Toggle("Use Net Scoring", isOn: $viewModel.newBetUseNetScoring)
+
+                                if viewModel.newBetUseNetScoring {
+                                    Text("Scores adjusted by handicap strokes")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+
+                            if viewModel.newBetType.requiresPuttsTracking {
+                                HStack(spacing: 6) {
+                                    Image(systemName: "info.circle")
+                                        .foregroundStyle(.blue)
+                                    Text("Requires putts to be entered on the scorecard")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        } else {
+                            Text("No rounds available. Add a round first.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 
-                Section("Participants") {
+                // MARK: - Custom Metric (custom type only)
+                if viewModel.newBetType.isCustom {
+                    Section("Custom Metric") {
+                        TextField("What are you tracking? (e.g. Beers Drank)", text: $viewModel.newBetCustomMetricName)
+
+                        Picker("Winner", selection: $viewModel.newBetCustomHighestWins) {
+                            Text("Highest Value Wins").tag(true)
+                            Text("Lowest Value Wins").tag(false)
+                        }
+
+                        Text("Players enter values manually. Example: beers drank, steps walked, hours slept.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                // MARK: - Participants
+                Section {
                     if let trip = viewModel.currentTrip {
                         ForEach(trip.players) { player in
                             Button {
-                                if viewModel.newBetParticipants.contains(player.id) {
-                                    viewModel.newBetParticipants.remove(player.id)
-                                } else {
-                                    viewModel.newBetParticipants.insert(player.id)
-                                }
+                                toggleParticipant(player.id)
                             } label: {
                                 HStack {
-                                    Text(player.initials)
-                                        .font(.system(size: 12, weight: .bold))
-                                        .foregroundStyle(.white)
-                                        .frame(width: 30, height: 30)
-                                        .background(player.avatarColor.color)
-                                        .clipShape(Circle())
+                                    Circle()
+                                        .fill(player.avatarColor.color)
+                                        .frame(width: 28, height: 28)
+                                        .overlay {
+                                            Text(String(player.name.prefix(1)))
+                                                .font(.caption.bold())
+                                                .foregroundStyle(.white)
+                                        }
+
                                     Text(player.name)
                                         .foregroundStyle(.primary)
+
                                     Spacer()
-                                    if viewModel.newBetParticipants.contains(player.id) {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .foregroundStyle(Theme.primary)
-                                    } else {
-                                        Image(systemName: "circle")
-                                            .foregroundStyle(.secondary)
-                                    }
+
+                                    Image(systemName: viewModel.newBetParticipants.contains(player.id) ? "checkmark.circle.fill" : "circle")
+                                        .foregroundStyle(viewModel.newBetParticipants.contains(player.id) ? Theme.primary : .secondary)
                                 }
                             }
+                            .accessibilityLabel("\(player.name), \(viewModel.newBetParticipants.contains(player.id) ? "selected" : "not selected")")
+                            .accessibilityAddTraits(viewModel.newBetParticipants.contains(player.id) ? .isSelected : [])
                         }
-
-                        Button("Select All") {
-                            viewModel.newBetParticipants = Set(trip.players.map(\.id))
-                        }
-                        .font(.subheadline)
-                        .foregroundStyle(Theme.primary)
+                    }
+                } header: {
+                    HStack {
+                        Text("Participants")
+                        Spacer()
+                        Text("\(viewModel.newBetParticipants.count) selected")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } footer: {
+                    if viewModel.newBetType.requiresTwoPlayers {
+                        Text("This challenge type requires exactly 2 participants.")
                     }
                 }
 
-                Section {
-                    TextField("e.g. Bragging Rights, Loser buys dinner, 20 pts", text: $viewModel.newBetStake)
+                // MARK: - Stakes
+                Section("Stakes") {
+                    TextField("e.g. Bragging Rights, $10, Dinner", text: $viewModel.newBetStake)
 
                     Toggle("Pool Mode", isOn: $viewModel.newBetIsPot)
 
                     if viewModel.newBetIsPot {
                         HStack {
-                            Text("Entry per player")
+                            Text("Per-Player Entry")
                             Spacer()
-                            HStack(spacing: 2) {
-                                Text("pts")
-                                    .foregroundStyle(.secondary)
-                                TextField("10", text: $viewModel.newBetPotAmount)
-                                    .keyboardType(.decimalPad)
-                                    .multilineTextAlignment(.trailing)
-                                    .frame(width: 60)
-                            }
-                        }
-
-                        if let potValue = Double(viewModel.newBetPotAmount),
-                           potValue > 0,
-                           viewModel.newBetParticipants.count >= 2 {
-                            let total = potValue * Double(viewModel.newBetParticipants.count)
-                            HStack {
-                                Image(systemName: "person.3.fill")
-                                    .foregroundStyle(Theme.primary)
-                                Text("\(viewModel.newBetParticipants.count) players × \(String(format: "%.0f", potValue)) pts = **\(String(format: "%.0f", total)) pt pool**")
-                                    .font(.subheadline)
-                            }
-                            .padding(.vertical, 4)
+                            TextField("0", text: $viewModel.newBetPotAmount)
+                                .keyboardType(.decimalPad)
+                                .multilineTextAlignment(.trailing)
+                                .frame(width: 80)
+                            Text("pts")
+                                .foregroundStyle(.secondary)
                         }
                     }
-                } header: {
-                    Text("Commitment")
-                } footer: {
-                    Text("What's on the line? Examples: \"Bragging Rights\", \"Loser buys dinner\", \"20 pts\". Turn on Pool Mode to collect points from each player into a winner-take-all pool.")
                 }
             }
-            .navigationTitle("Create Challenge")
+            .navigationTitle("New Challenge")
             .navigationBarTitleDisplayMode(.inline)
+            .onChange(of: viewModel.newBetType) { _, newType in
+                viewModel.newBetRequiresPutts = newType.requiresPuttsTracking
+                // Clear round selection when switching to non-round-based type
+                if !newType.isRoundBased {
+                    viewModel.newBetRoundId = nil
+                }
+                // Clear custom fields when switching away from custom
+                if !newType.isCustom {
+                    viewModel.newBetCustomMetricName = ""
+                    viewModel.newBetCustomHighestWins = true
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         viewModel.resetBetForm()
-                        dismiss()
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Create") {
                         viewModel.createBet()
-                        dismiss()
                     }
-                    .disabled(!canCreate)
                     .fontWeight(.semibold)
+                    .disabled(!canSave)
                 }
             }
         }
     }
 
-    private var canCreate: Bool {
-        !viewModel.newBetName.isEmpty &&
-        viewModel.newBetMetricId != nil &&
-        viewModel.newBetParticipants.count >= 2
+    // MARK: - Helpers
+
+    private func challengeTypeChip(_ type: BetType) -> some View {
+        Button {
+            viewModel.newBetType = type
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: type.icon)
+                    .font(.caption2)
+                Text(type.displayName)
+                    .font(.caption)
+                    .fontWeight(.medium)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(viewModel.newBetType == type ? Theme.primary : Theme.primaryLight)
+            .foregroundStyle(viewModel.newBetType == type ? .white : Theme.primary)
+            .clipShape(Capsule())
+        }
+        .accessibilityLabel("\(type.displayName) challenge type")
+        .accessibilityAddTraits(viewModel.newBetType == type ? .isSelected : [])
+    }
+
+    private func toggleParticipant(_ playerId: UUID) {
+        if viewModel.newBetParticipants.contains(playerId) {
+            viewModel.newBetParticipants.remove(playerId)
+        } else {
+            viewModel.newBetParticipants.insert(playerId)
+        }
+    }
+}
+
+// MARK: - Flow Layout (wrapping horizontal layout for chips)
+
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let result = arrange(proposal: proposal, subviews: subviews)
+        return result.size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let result = arrange(proposal: ProposedViewSize(width: bounds.width, height: bounds.height), subviews: subviews)
+        for (index, position) in result.positions.enumerated() {
+            subviews[index].place(at: CGPoint(x: bounds.minX + position.x, y: bounds.minY + position.y), proposal: .unspecified)
+        }
+    }
+
+    private func arrange(proposal: ProposedViewSize, subviews: Subviews) -> (size: CGSize, positions: [CGPoint]) {
+        let maxWidth = proposal.width ?? .infinity
+        var positions: [CGPoint] = []
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var maxX: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > maxWidth && x > 0 {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            positions.append(CGPoint(x: x, y: y))
+            rowHeight = max(rowHeight, size.height)
+            x += size.width + spacing
+            maxX = max(maxX, x)
+        }
+
+        return (CGSize(width: maxX, height: y + rowHeight), positions)
     }
 }
 
 #Preview {
-    CreateSideBetView(viewModel: SampleData.makeMetricsViewModel())
+    let appState = SampleData.makeAppState()
+    CreateSideBetView(viewModel: ChallengesViewModel(appState: appState))
 }

@@ -23,13 +23,39 @@ struct ScorecardView: View {
             }
             .navigationTitle("Scorecard")
             .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        viewModel.showingRoundSetup = true
-                    } label: {
-                        Image(systemName: "plus")
+                if let round = viewModel.currentRound {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button {
+                            viewModel.selectedRoundId = nil
+                        } label: {
+                            Image(systemName: "chevron.left")
+                        }
+                        .accessibilityLabel("Back to rounds")
                     }
-                    .accessibilityLabel("Start new round")
+                    if !round.isComplete {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button {
+                                if viewModel.currentHole >= viewModel.holeCount {
+                                    viewModel.showingRoundComplete = true
+                                } else {
+                                    viewModel.nextHole()
+                                }
+                            } label: {
+                                Text(viewModel.currentHole >= viewModel.holeCount ? "Finish" : "Next Hole")
+                                    .fontWeight(.semibold)
+                            }
+                            .accessibilityLabel(viewModel.currentHole >= viewModel.holeCount ? "Finish round" : "Next hole")
+                        }
+                    }
+                } else {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            viewModel.showingRoundSetup = true
+                        } label: {
+                            Image(systemName: "plus")
+                        }
+                        .accessibilityLabel("Start new round")
+                    }
                 }
             }
             .sheet(isPresented: $viewModel.showingRoundSetup) {

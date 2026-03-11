@@ -3,8 +3,11 @@ import SwiftUI
 struct SideGameDetailView: View {
     @Bindable var viewModel: SideGameViewModel
     let game: SideGame
+    @Environment(\.dismiss) private var dismiss
     @State private var showingAddResult = false
     @State private var showingPotWinnerPicker = false
+    @State private var showingEndGameConfirmation = false
+    @State private var showingDeleteConfirmation = false
 
     var body: some View {
         List {
@@ -173,14 +176,14 @@ struct SideGameDetailView: View {
                         }
 
                         Button("End Game") {
-                            viewModel.endSideGame(game.id)
+                            showingEndGameConfirmation = true
                         }
                         .foregroundStyle(.orange)
                     }
                 }
 
                 Button("Delete Game", role: .destructive) {
-                    viewModel.deleteSideGame(game.id)
+                    showingDeleteConfirmation = true
                 }
             }
         }
@@ -191,6 +194,23 @@ struct SideGameDetailView: View {
         }
         .sheet(isPresented: $showingPotWinnerPicker) {
             PotWinnerPickerSheet(viewModel: viewModel, game: game)
+        }
+        .confirmationDialog("End Game", isPresented: $showingEndGameConfirmation, titleVisibility: .visible) {
+            Button("End Game", role: .destructive) {
+                viewModel.endSideGame(game.id)
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Are you sure you want to end this game? This cannot be undone.")
+        }
+        .confirmationDialog("Delete Game", isPresented: $showingDeleteConfirmation, titleVisibility: .visible) {
+            Button("Delete Game", role: .destructive) {
+                viewModel.deleteSideGame(game.id)
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Are you sure you want to delete this game? All results will be lost.")
         }
     }
 }
@@ -285,7 +305,8 @@ struct AddResultSheet: View {
             Form {
                 Section("Hole") {
                     Picker("Hole", selection: $selectedHole) {
-                        ForEach(1...18, id: \.self) { hole in
+                        let holeCount = viewModel.currentTrip?.courses.first?.holes.count ?? 18
+                        ForEach(1...holeCount, id: \.self) { hole in
                             Text("Hole \(hole)").tag(hole)
                         }
                     }

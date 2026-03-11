@@ -112,27 +112,27 @@ struct TripListView: View {
                     }
                 }
             }
-            .alert("Are you sure?", isPresented: $showingDeleteConfirmation) {
-                Button("Cancel", role: .cancel) {
-                    tripToDelete = nil
-                }
-                Button("Delete", role: .destructive) {
-                    if let trip = tripToDelete {
-                        if trip.isOwner(appState.currentUser?.id) {
-                            viewModel.deleteTrip(trip)
-                        } else {
-                            viewModel.leaveTrip(trip)
-                        }
-                    }
-                    tripToDelete = nil
-                }
-            } message: {
+        }
+        .alert("Are you sure?", isPresented: $showingDeleteConfirmation) {
+            Button("Cancel", role: .cancel) {
+                tripToDelete = nil
+            }
+            Button("Delete", role: .destructive) {
                 if let trip = tripToDelete {
                     if trip.isOwner(appState.currentUser?.id) {
-                        Text("This will permanently delete \"\(trip.name)\" and all its data.")
+                        viewModel.deleteTrip(trip)
                     } else {
-                        Text("You will be removed from \"\(trip.name)\".")
+                        viewModel.leaveTrip(trip)
                     }
+                }
+                tripToDelete = nil
+            }
+        } message: {
+            if let trip = tripToDelete {
+                if trip.isOwner(appState.currentUser?.id) {
+                    Text("This will permanently delete \"\(trip.name)\" and all its data.")
+                } else {
+                    Text("You will be removed from \"\(trip.name)\".")
                 }
             }
         }

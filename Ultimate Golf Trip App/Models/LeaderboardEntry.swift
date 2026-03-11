@@ -44,7 +44,15 @@ struct LeaderboardEntry: Identifiable, Equatable, Hashable {
     }
 
     static func == (lhs: LeaderboardEntry, rhs: LeaderboardEntry) -> Bool {
-        lhs.playerId == rhs.playerId
+        lhs.playerId == rhs.playerId &&
+        lhs.position == rhs.position &&
+        lhs.totalGross == rhs.totalGross &&
+        lhs.totalNet == rhs.totalNet &&
+        lhs.scoreToPar == rhs.scoreToPar &&
+        lhs.netScoreToPar == rhs.netScoreToPar &&
+        lhs.holesCompleted == rhs.holesCompleted &&
+        lhs.roundsCompleted == rhs.roundsCompleted &&
+        lhs.stablefordPoints == rhs.stablefordPoints
     }
 
     func hash(into hasher: inout Hasher) {
@@ -62,8 +70,9 @@ struct LeaderboardEntry: Identifiable, Equatable, Hashable {
     }
 
     var thruDisplay: String {
-        if holesCompleted == 18 { return "F" }
         if holesCompleted == 0 { return "-" }
+        if roundsCompleted > 0 && roundsCompleted == totalRounds { return "F" }
+        if holesCompleted == 18 { return "F" }
         return "\(holesCompleted)"
     }
 
@@ -80,6 +89,7 @@ struct MatchPlayResult: Identifiable, Hashable {
     var player1Wins: Int
     var player2Wins: Int
     var holesPlayed: Int
+    var totalHoles: Int
     var result: String
 
     init(
@@ -89,6 +99,7 @@ struct MatchPlayResult: Identifiable, Hashable {
         player1Wins: Int = 0,
         player2Wins: Int = 0,
         holesPlayed: Int = 0,
+        totalHoles: Int = 18,
         result: String = ""
     ) {
         self.id = id
@@ -97,12 +108,13 @@ struct MatchPlayResult: Identifiable, Hashable {
         self.player1Wins = player1Wins
         self.player2Wins = player2Wins
         self.holesPlayed = holesPlayed
+        self.totalHoles = totalHoles
         self.result = result
     }
 
     var margin: Int { abs(player1Wins - player2Wins) }
-    var holesRemaining: Int { 18 - holesPlayed }
-    var isComplete: Bool { holesPlayed == 18 || margin > holesRemaining }
+    var holesRemaining: Int { totalHoles - holesPlayed }
+    var isComplete: Bool { holesPlayed == totalHoles || margin > holesRemaining }
 
     var statusText: String {
         if isComplete {

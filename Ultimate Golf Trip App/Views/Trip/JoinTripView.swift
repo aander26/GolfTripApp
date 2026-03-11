@@ -70,11 +70,18 @@ struct JoinTripView: View {
             do {
                 try await viewModel.joinTrip(shareCode: shareCode)
                 await MainActor.run {
+                    isJoining = false
                     isPresented = false
+                }
+            } catch let joinError as JoinTripError {
+                await MainActor.run {
+                    errorMessage = joinError.localizedDescription
+                    isJoining = false
                 }
             } catch {
                 await MainActor.run {
-                    errorMessage = error.localizedDescription
+                    // Show a friendly message instead of raw CloudKit errors
+                    errorMessage = "Could not join trip. Please check your internet connection and make sure you're signed into iCloud, then try again."
                     isJoining = false
                 }
             }

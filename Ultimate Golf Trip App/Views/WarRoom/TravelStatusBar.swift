@@ -30,6 +30,16 @@ struct TravelStatusBar: View {
                 .padding(.horizontal, 2)
                 .padding(.vertical, 4)
             }
+            .mask(
+                HStack(spacing: 0) {
+                    Color.black
+                    // Fade trailing edge when there are more than 5 players
+                    if viewModel.playerStatuses.count > 5 {
+                        LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                            .frame(width: 24)
+                    }
+                }
+            )
         }
         .padding()
         .cardStyle(padded: false)

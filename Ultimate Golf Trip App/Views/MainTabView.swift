@@ -18,11 +18,8 @@ struct MainTabView: View {
     @State private var tripViewModel: TripViewModel?
     @State private var scorecardViewModel: ScorecardViewModel?
     @State private var leaderboardViewModel: LeaderboardViewModel?
-    @State private var sideGameViewModel: SideGameViewModel?
-    @State private var weatherViewModel: WeatherViewModel?
     @State private var warRoomViewModel: WarRoomViewModel?
-    @State private var metricsViewModel: MetricsViewModel?
-    @State private var spotifyViewModel: SpotifyPlaylistViewModel?
+    @State private var challengesViewModel: ChallengesViewModel?
 
     var body: some View {
         Group {
@@ -31,22 +28,16 @@ struct MainTabView: View {
                     .onAppear { initializeViewModels() }
             } else if let tripVM = tripViewModel,
                       let warRoomVM = warRoomViewModel,
-                      let weatherVM = weatherViewModel,
                       let leaderboardVM = leaderboardViewModel,
                       let scorecardVM = scorecardViewModel,
-                      let sideGameVM = sideGameViewModel,
-                      let metricsVM = metricsViewModel,
-                      let spotifyVM = spotifyViewModel {
+                      let challengesVM = challengesViewModel {
                 if appState.currentTrip != nil {
                     tripTabView(
                         tripVM: tripVM,
                         warRoomVM: warRoomVM,
-                        weatherVM: weatherVM,
                         leaderboardVM: leaderboardVM,
                         scorecardVM: scorecardVM,
-                        sideGameVM: sideGameVM,
-                        metricsVM: metricsVM,
-                        spotifyVM: spotifyVM
+                        challengesVM: challengesVM
                     )
                 } else {
                     TripListView(viewModel: tripVM)
@@ -61,16 +52,13 @@ struct MainTabView: View {
     private func tripTabView(
         tripVM: TripViewModel,
         warRoomVM: WarRoomViewModel,
-        weatherVM: WeatherViewModel,
         leaderboardVM: LeaderboardViewModel,
         scorecardVM: ScorecardViewModel,
-        sideGameVM: SideGameViewModel,
-        metricsVM: MetricsViewModel,
-        spotifyVM: SpotifyPlaylistViewModel
+        challengesVM: ChallengesViewModel
     ) -> some View {
         TabView(selection: $selectedTab) {
             Tab("War Room", systemImage: "mappin.and.ellipse", value: 0) {
-                WarRoomView(viewModel: warRoomVM, weatherViewModel: weatherVM, spotifyViewModel: spotifyVM)
+                WarRoomView(viewModel: warRoomVM)
             }
 
             Tab("Leaderboard", systemImage: "trophy.fill", value: 1) {
@@ -81,8 +69,8 @@ struct MainTabView: View {
                 ScorecardView(viewModel: scorecardVM)
             }
 
-            Tab("Side Games", systemImage: "flag.checkered.circle.fill", value: 3) {
-                SideGamesView(viewModel: sideGameVM, metricsViewModel: metricsVM)
+            Tab("Challenges", systemImage: "trophy.circle.fill", value: 3) {
+                SideGamesView(challengesViewModel: challengesVM)
             }
 
             Tab("Trip", systemImage: "figure.golf", value: 4) {
@@ -90,32 +78,41 @@ struct MainTabView: View {
             }
         }
         .tint(Theme.primary)
-        .onAppear {
-            let tabBarAppearance = UITabBarAppearance()
-            tabBarAppearance.configureWithOpaqueBackground()
-            tabBarAppearance.backgroundColor = UIColor(Theme.backgroundDark)
-            // Active tab: emerald-400
-            let activeColor = UIColor(Theme.primary)
-            tabBarAppearance.stackedLayoutAppearance.selected.iconColor = activeColor
-            tabBarAppearance.stackedLayoutAppearance.selected.titleTextAttributes = [.foregroundColor: activeColor]
-            // Inactive tab: gray-500
-            let inactiveColor = UIColor(Theme.textSecondary)
-            tabBarAppearance.stackedLayoutAppearance.normal.iconColor = inactiveColor
-            tabBarAppearance.stackedLayoutAppearance.normal.titleTextAttributes = [.foregroundColor: inactiveColor]
-            UITabBar.appearance().standardAppearance = tabBarAppearance
-            UITabBar.appearance().scrollEdgeAppearance = tabBarAppearance
+        .toolbarBackground(Theme.backgroundDark, for: .tabBar)
+        .toolbarBackground(.visible, for: .tabBar)
+        .overlay(alignment: .top) {
+            if appState.lastSyncFailed {
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.icloud")
+                        .font(.caption)
+                    Text(appState.lastSyncError ?? "Sync issue — check your connection.")
+                        .font(.caption)
+                    Spacer()
+                    Button {
+                        appState.lastSyncFailed = false
+                        Task { await appState.syncWithCloud() }
+                    } label: {
+                        Text("Retry")
+                            .font(.caption.bold())
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(.red.opacity(0.9))
+                .foregroundStyle(.white)
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
         }
+        .animation(.easeInOut(duration: 0.3), value: appState.lastSyncFailed)
     }
 
     private func initializeViewModels() {
         tripViewModel = TripViewModel(appState: appState)
         scorecardViewModel = ScorecardViewModel(appState: appState)
         leaderboardViewModel = LeaderboardViewModel(appState: appState)
-        sideGameViewModel = SideGameViewModel(appState: appState)
-        weatherViewModel = WeatherViewModel(appState: appState)
         warRoomViewModel = WarRoomViewModel(appState: appState)
-        metricsViewModel = MetricsViewModel(appState: appState)
-        spotifyViewModel = SpotifyPlaylistViewModel(appState: appState)
+        challengesViewModel = ChallengesViewModel(appState: appState)
+
         viewModelsInitialized = true
     }
 }

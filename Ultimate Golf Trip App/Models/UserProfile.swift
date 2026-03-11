@@ -43,7 +43,9 @@ final class UserProfile {
         if handicapIndex == 0 {
             return "SCR"
         }
-        let sign = handicapIndex > 0 ? "" : "+"
-        return "\(sign)\(String(format: "%.1f", handicapIndex))"
+        if handicapIndex > 0 {
+            return String(format: "%.1f", handicapIndex)
+        }
+        return "+\(String(format: "%.1f", abs(handicapIndex)))"
     }
 }

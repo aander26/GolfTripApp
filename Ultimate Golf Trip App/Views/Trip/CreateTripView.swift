@@ -36,7 +36,7 @@ struct CreateTripView: View {
                         viewModel.createTrip()
                         isPresented = false
                     }
-                    .disabled(viewModel.tripName.isEmpty)
+                    .disabled(viewModel.tripName.trimmingCharacters(in: .whitespaces).isEmpty)
                     .fontWeight(.semibold)
                 }
             }

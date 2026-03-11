@@ -4,6 +4,7 @@ struct TripDetailView: View {
     @Bindable var viewModel: TripViewModel
     @Environment(AppState.self) private var appState
     @State private var showingEditProfile = false
+    @State private var showingLeaveConfirmation = false
 
     var body: some View {
         NavigationStack {
@@ -25,9 +26,13 @@ struct TripDetailView: View {
                     Section {
                         ForEach(trip.players) { player in
                             PlayerRowView(player: player, team: trip.team(withId: player.teamId ?? UUID()))
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    viewModel.startEditingPlayer(player)
+                                }
                         }
                         .onDelete { indexSet in
-                            for index in indexSet {
+                            for index in indexSet.sorted().reversed() {
                                 viewModel.removePlayer(trip.players[index])
                             }
                         }
@@ -48,9 +53,13 @@ struct TripDetailView: View {
                                 team: team,
                                 players: trip.playersOnTeam(team.id)
                             )
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                viewModel.startEditingTeam(team)
+                            }
                         }
                         .onDelete { indexSet in
-                            for index in indexSet {
+                            for index in indexSet.sorted().reversed() {
                                 viewModel.removeTeam(trip.teams[index])
                             }
                         }
@@ -73,7 +82,7 @@ struct TripDetailView: View {
                     }
 
                     // Trip Rules (only show when teams exist)
-                    if trip.teams.count == 2 {
+                    if trip.teams.count >= 2 {
                         Section {
                             NavigationLink {
                                 TripRulesView(viewModel: viewModel)
@@ -104,9 +113,13 @@ struct TripDetailView: View {
                     Section {
                         ForEach(trip.courses) { course in
                             CourseRowView(course: course)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    viewModel.startEditingCourse(course)
+                                }
                         }
                         .onDelete { indexSet in
-                            for index in indexSet {
+                            for index in indexSet.sorted().reversed() {
                                 viewModel.removeCourse(trip.courses[index])
                             }
                         }
@@ -150,12 +163,18 @@ struct TripDetailView: View {
 
                         if !trip.isOwner(appState.currentUser?.id) {
                             Button(role: .destructive) {
-                                viewModel.leaveTrip(trip)
+                                showingLeaveConfirmation = true
                             } label: {
                                 Label("Leave Trip", systemImage: "arrow.right.square")
                             }
                         }
                     }
+                } else {
+                    ContentUnavailableView(
+                        "No Trip Selected",
+                        systemImage: "flag.fill",
+                        description: Text("Create or select a trip to get started")
+                    )
                 }
             }
             .navigationTitle(viewModel.currentTrip?.name ?? "Trip")
@@ -168,8 +187,27 @@ struct TripDetailView: View {
             .sheet(isPresented: $viewModel.showingAddCourse) {
                 AddCourseSheet(viewModel: viewModel)
             }
+            .sheet(isPresented: $viewModel.showingEditCourse) {
+                EditCourseSheet(viewModel: viewModel)
+            }
+            .sheet(isPresented: $viewModel.showingEditPlayer) {
+                EditPlayerSheet(viewModel: viewModel)
+            }
+            .sheet(isPresented: $viewModel.showingEditTeam) {
+                EditTeamSheet(viewModel: viewModel)
+            }
             .sheet(isPresented: $showingEditProfile) {
                 EditProfileView()
+            }
+            .confirmationDialog("Leave Trip", isPresented: $showingLeaveConfirmation, titleVisibility: .visible) {
+                Button("Leave Trip", role: .destructive) {
+                    if let trip = viewModel.currentTrip {
+                        viewModel.leaveTrip(trip)
+                    }
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("Are you sure you want to leave this trip? You will need a share code to rejoin.")
             }
         }
     }
@@ -213,9 +251,13 @@ struct PlayerRowView: View {
             }
 
             Spacer()
+
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(player.name), handicap \(player.formattedHandicap)\(team.map { ", team \($0.name)" } ?? "")")
+        .accessibilityLabel("\(player.name), handicap \(player.formattedHandicap)\(team.map { ", team \($0.name)" } ?? ""), tap to edit")
     }
 }
 
@@ -224,27 +266,35 @@ struct TeamRowView: View {
     let players: [Player]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Circle()
-                    .fill(team.color.color)
-                    .frame(width: 12, height: 12)
-                    .accessibilityHidden(true)
-                Text(team.name)
-                    .font(.headline)
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Circle()
+                        .fill(team.color.color)
+                        .frame(width: 12, height: 12)
+                        .accessibilityHidden(true)
+                    Text(team.name)
+                        .font(.headline)
+                }
+                if players.isEmpty {
+                    Text("No players assigned")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(players.map(\.name).joined(separator: ", "))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
-            if players.isEmpty {
-                Text("No players assigned")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text(players.map(\.name).joined(separator: ", "))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+
+            Spacer()
+
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Team \(team.name), \(players.isEmpty ? "no players assigned" : players.map(\.name).joined(separator: ", "))")
+        .accessibilityLabel("Team \(team.name), \(players.isEmpty ? "no players assigned" : players.map(\.name).joined(separator: ", ")), tap to edit")
     }
 }
 
@@ -252,25 +302,44 @@ struct CourseRowView: View {
     let course: Course
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(course.name)
-                .font(.body)
-            HStack(spacing: 12) {
-                Text("Par \(course.totalPar)")
-                Text("\(course.totalYardage) yds")
-                Text("Slope: \(Int(course.slopeRating))")
-                if !course.location.isEmpty {
-                    Text(course.location)
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(course.name)
+                    .font(.body)
+                HStack(spacing: 12) {
+                    Text("Par \(course.totalPar)")
+                    Text("\(course.totalYardage) yds")
+                    Text("Slope: \(Int(course.slopeRating))")
+                    if !course.location.isEmpty {
+                        Text(course.location)
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                HStack(spacing: 8) {
+                    if let teeName = course.selectedTeeBoxName {
+                        Text("\(teeName) Tees")
+                            .font(.caption2)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Theme.primary.opacity(0.1))
+                            .clipShape(Capsule())
+                    }
+
+                    if let rule = course.teamScoringRule {
+                        Text(rule.summaryText)
+                            .font(.caption2)
+                            .foregroundStyle(Theme.primary)
+                    }
                 }
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
 
-            if let rule = course.teamScoringRule {
-                Text(rule.summaryText)
-                    .font(.caption2)
-                    .foregroundStyle(Theme.primary)
-            }
+            Spacer()
+
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
         }
     }
 }

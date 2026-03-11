@@ -138,6 +138,9 @@ enum LegacyModels {
         var voterIds: [UUID]
     }
 
+    // NOTE: Metric and MetricEntry structs are intentionally preserved here for legacy
+    // UserDefaults JSON decoding. The metrics system was removed from the app, but these
+    // definitions are needed so old data can still be decoded during migration without crashing.
     struct Metric: Codable {
         var id: UUID
         var name: String
@@ -161,7 +164,7 @@ enum LegacyModels {
     struct SideBet: Codable {
         var id: UUID
         var name: String
-        var metricId: UUID
+        var metricId: UUID  // Legacy field — metrics system removed, kept for JSON decoding
         var betType: String
         var participants: [UUID]
         var stake: String

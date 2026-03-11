@@ -29,8 +29,10 @@ class GolfCourseSearchService: NSObject {
         didSet {
             if searchText.count >= 2 {
                 completer.queryFragment = searchText
+                updateDatabaseMatches(query: searchText)
             } else {
                 suggestions = []
+                databaseMatches = []
             }
             // Reset selection when search text changes manually
             if !isAutoFilled {
@@ -41,6 +43,8 @@ class GolfCourseSearchService: NSObject {
     }
 
     var suggestions: [MKLocalSearchCompletion] = []
+    /// Courses found directly in the bundled database (shown alongside MapKit results)
+    var databaseMatches: [CourseData] = []
     var selectedResult: CourseSearchResult?
     var isSearching: Bool = false
 
@@ -53,6 +57,61 @@ class GolfCourseSearchService: NSObject {
         completer.delegate = self
         completer.resultTypes = .pointOfInterest
         // No dedicated golf POI category — we filter results in the delegate callback
+    }
+
+    /// Search the bundled database directly for the user's query
+    private func updateDatabaseMatches(query: String) {
+        let normalizedQuery = query.lowercased().trimmingCharacters(in: .whitespaces)
+        guard normalizedQuery.count >= 3 else {
+            databaseMatches = []
+            return
+        }
+
+        let matches = database.allCourses.filter { course in
+            course.name.lowercased().contains(normalizedQuery)
+        }
+        databaseMatches = Array(matches.prefix(5))
+    }
+
+    /// Select a database match, enriching with API tee box data when available.
+    /// The database hole/par data is always used as the source of truth.
+    func selectDatabaseCourse(_ course: CourseData) async {
+        isSearching = true
+
+        // The database has reliable par/hole data — use it as the base.
+        // Only fetch from API to supplement with additional tee box details.
+        var resolvedData = course
+
+        let apiData = await GolfCourseAPIService.shared.findCourse(
+            name: course.name, city: course.city, state: course.state
+        )
+        if let apiData = apiData, let apiTeeBoxes = apiData.teeBoxes, !apiTeeBoxes.isEmpty {
+            // Keep database holes/pars (reliable), add API tee boxes only
+            resolvedData = CourseData(
+                name: course.name,
+                city: course.city,
+                state: course.state,
+                slopeRating: course.slopeRating,
+                courseRating: course.courseRating,
+                holes: course.holes,
+                teeBoxes: apiTeeBoxes
+            )
+        }
+
+        let result = CourseSearchResult(
+            name: resolvedData.name,
+            city: resolvedData.city,
+            state: resolvedData.state,
+            latitude: 0,
+            longitude: 0,
+            courseData: resolvedData
+        )
+        selectedResult = result
+        isAutoFilled = true
+        searchText = resolvedData.name
+        suggestions = []
+        databaseMatches = []
+        isSearching = false
     }
 
     /// Select a suggestion and resolve its full details.
@@ -76,8 +135,13 @@ class GolfCourseSearchService: NSObject {
             let lat = placemark.coordinate.latitude
             let lon = placemark.coordinate.longitude
 
-            // Check bundled database for detailed course data
-            let courseData = database.findCourse(name: name, city: city, state: state)
+            // Try the bundled database FIRST — hand-curated data is more reliable
+            var courseData = database.findCourse(name: name, city: city, state: state)
+
+            // Fall back to live API only if database has no match
+            if courseData == nil {
+                courseData = await GolfCourseAPIService.shared.findCourse(name: name, city: city, state: state)
+            }
 
             let result = CourseSearchResult(
                 name: name,
@@ -112,24 +176,27 @@ class GolfCourseSearchService: NSObject {
 
 extension GolfCourseSearchService: MKLocalSearchCompleterDelegate {
 
+    /// Keywords that indicate a MapKit result is a golf course.
+    /// Kept strict to avoid surfacing hotels, inns, restaurants, etc.
+    private nonisolated static let golfKeywords: [String] = [
+        "golf", "country club", "links", "course",
+        "tpc", "club at"
+    ]
+
     nonisolated func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
+        let keywords = Self.golfKeywords
+
+        // Only show results whose title or subtitle contain golf-specific keywords.
+        // Non-golf POIs (hotels, inns, restaurants) are filtered out.
+        // The bundled database section in the UI catches courses MapKit misses.
         let results = completer.results.filter { completion in
-            // Filter for golf-related results
-            let title = completion.title.lowercased()
-            let subtitle = completion.subtitle.lowercased()
-            let combined = title + " " + subtitle
-            return combined.contains("golf") ||
-                   combined.contains("country club") ||
-                   combined.contains("links") ||
-                   combined.contains("course") ||
-                   combined.contains("tpc") ||
-                   combined.contains("club at") ||
-                   combined.contains("national") ||
-                   combined.contains("resort")
+            let combined = (completion.title + " " + completion.subtitle).lowercased()
+            return keywords.contains { combined.contains($0) }
         }
 
+        let finalResults = Array(results.prefix(8))
         Task { @MainActor in
-            self.suggestions = Array(results.prefix(8))
+            self.suggestions = finalResults
         }
     }
 

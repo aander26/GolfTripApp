@@ -50,13 +50,15 @@ struct LeaderboardEngine {
             }
         }
 
-        // Sort and assign positions
-        var sorted = Array(entries.values).sorted { a, b in
-            if a.netScoreToPar != b.netScoreToPar {
-                return a.netScoreToPar < b.netScoreToPar
+        // Filter out players who haven't completed any holes, then sort
+        var sorted = Array(entries.values)
+            .filter { $0.holesCompleted > 0 }
+            .sorted { a, b in
+                if a.netScoreToPar != b.netScoreToPar {
+                    return a.netScoreToPar < b.netScoreToPar
+                }
+                return a.scoreToPar < b.scoreToPar
             }
-            return a.scoreToPar < b.scoreToPar
-        }
 
         assignPositions(&sorted)
         return sorted
@@ -93,6 +95,7 @@ struct LeaderboardEngine {
             )
         }
 
+        let isStableford = round.format == .stableford
         switch round.format {
         case .stableford:
             entries.sort { $0.stablefordPoints > $1.stablefordPoints }
@@ -105,7 +108,7 @@ struct LeaderboardEngine {
             }
         }
 
-        assignPositions(&entries)
+        assignPositions(&entries, useStableford: isStableford)
         return entries
     }
 
@@ -113,20 +116,25 @@ struct LeaderboardEngine {
     static func generateStablefordLeaderboard(trip: Trip) -> [LeaderboardEntry] {
         var entries = generateLeaderboard(trip: trip)
         entries.sort { $0.stablefordPoints > $1.stablefordPoints }
-        assignPositions(&entries)
+        assignPositions(&entries, useStableford: true)
         return entries
     }
 
     /// Assign positions with tie handling
-    private static func assignPositions(_ entries: inout [LeaderboardEntry]) {
+    private static func assignPositions(_ entries: inout [LeaderboardEntry], useStableford: Bool = false) {
         guard !entries.isEmpty else { return }
 
         var position = 1
         entries[0].position = position
 
         for i in 1..<entries.count {
-            let isTied = entries[i].netScoreToPar == entries[i - 1].netScoreToPar &&
+            let isTied: Bool
+            if useStableford {
+                isTied = entries[i].stablefordPoints == entries[i - 1].stablefordPoints
+            } else {
+                isTied = entries[i].netScoreToPar == entries[i - 1].netScoreToPar &&
                          entries[i].scoreToPar == entries[i - 1].scoreToPar
+            }
             if !isTied {
                 position = i + 1
             }
