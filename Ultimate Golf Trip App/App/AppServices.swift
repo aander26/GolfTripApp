@@ -505,6 +505,10 @@ class AppState {
                     localRound.isComplete = cloudRound.isComplete
                     localRound.matchPairings = cloudRound.matchPairings
                     localRound.updatedAt = cloudRound.updatedAt
+                    // Preserve round-level scoring rule from cloud
+                    if let cloudRule = cloudRound.teamScoringRule {
+                        localRound.teamScoringRule = cloudRule
+                    }
                 }
                 // Re-stitch course
                 if let cloudCourse = cloudRound.course {
@@ -521,6 +525,7 @@ class AppState {
                     isComplete: cloudRound.isComplete,
                     matchPairings: cloudRound.matchPairings
                 )
+                newRound.teamScoringRule = cloudRound.teamScoringRule
                 newRound.trip = local
                 if let cloudCourse = cloudRound.course {
                     newRound.course = local.courses.first { $0.id == cloudCourse.id }

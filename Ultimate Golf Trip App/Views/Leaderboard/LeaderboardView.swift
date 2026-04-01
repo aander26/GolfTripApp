@@ -190,7 +190,7 @@ struct LeaderboardView: View {
                                         }
                                     }
 
-                                    // Show team scores for stroke play / best ball (without nines)
+                                    // Show team scores for stroke play (without nines)
                                     if !roundResult.teamScores.isEmpty {
                                         let winnerTeamId = roundResult.winningTeamId
                                         ForEach(roundResult.teamScores) { teamScore in
@@ -198,6 +198,23 @@ struct LeaderboardView: View {
                                                 teamScore: teamScore,
                                                 isWinner: teamScore.teamId == winnerTeamId
                                             )
+                                        }
+                                    }
+
+                                    // Show 4-ball best ball match play results
+                                    if !roundResult.bestBallMatches.isEmpty {
+                                        ForEach(roundResult.bestBallMatches) { match in
+                                            HStack {
+                                                Circle()
+                                                    .fill(match.team1Color.color)
+                                                    .frame(width: 10, height: 10)
+                                                Text(match.displayText)
+                                                    .font(.subheadline)
+                                                Circle()
+                                                    .fill(match.team2Color.color)
+                                                    .frame(width: 10, height: 10)
+                                            }
+                                            .padding(.vertical, 4)
                                         }
                                     }
                                 } label: {

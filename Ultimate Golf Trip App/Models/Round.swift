@@ -12,6 +12,10 @@ final class Round {
     /// Timestamp of last modification, used for merge conflict resolution.
     var updatedAt: Date = Date()
 
+    /// Team scoring rule for this round (set at creation time).
+    /// Stored per-round so reusing a course with a different format doesn't overwrite history.
+    var teamScoringRule: TeamScoringRule?
+
     /// Optional match pairings for team match play. When empty, engine auto-pairs by team roster order.
     var matchPairings: [MatchPairing] = []
 

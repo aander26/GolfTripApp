@@ -203,9 +203,73 @@ struct TeamNinesScore: Identifiable, Hashable {
     var overallNet: Int
 }
 
-// MARK: - Team Round Score (for stroke play / best ball)
+// MARK: - Team Best Ball Match Result (4-ball match play)
 
-/// A team's aggregate score for a single round (stroke play or best ball).
+/// Result of a 4-ball best ball match between two teams.
+/// Each hole: best net score from each team is compared, win/lose/halve per hole.
+/// Final result expressed as match play (e.g. "Team A wins 3 & 2").
+struct TeamBestBallMatchResult: Identifiable, Hashable {
+    var id = UUID()
+    var team1Id: UUID
+    var team2Id: UUID
+    var team1Name: String
+    var team2Name: String
+    var team1Color: TeamColor
+    var team2Color: TeamColor
+
+    /// Holes won by each team
+    var team1HolesWon: Int
+    var team2HolesWon: Int
+    var holesPlayed: Int
+    var totalHoles: Int
+
+    var isComplete: Bool {
+        holesPlayed >= totalHoles || abs(team1HolesWon - team2HolesWon) > (totalHoles - holesPlayed)
+    }
+
+    /// The match play margin (positive = team1 leads, negative = team2 leads)
+    var margin: Int { team1HolesWon - team2HolesWon }
+    var holesRemaining: Int { totalHoles - holesPlayed }
+
+    var winningTeamId: UUID? {
+        guard isComplete else { return nil }
+        if team1HolesWon > team2HolesWon { return team1Id }
+        if team2HolesWon > team1HolesWon { return team2Id }
+        return nil
+    }
+
+    var isHalved: Bool {
+        isComplete && team1HolesWon == team2HolesWon
+    }
+
+    /// Display text, e.g. "Team A wins 3 & 2", "All Square", "Team B 2 UP thru 14"
+    var displayText: String {
+        let absMarg = abs(margin)
+        let remaining = holesRemaining
+
+        if isComplete {
+            if margin == 0 {
+                return "\(team1Name) vs \(team2Name) — Halved"
+            }
+            let winner = margin > 0 ? team1Name : team2Name
+            let loser = margin > 0 ? team2Name : team1Name
+            if remaining == 0 {
+                return "\(winner) def. \(loser) \(absMarg) UP"
+            }
+            return "\(winner) def. \(loser) \(absMarg)&\(remaining)"
+        }
+
+        if margin == 0 {
+            return "\(team1Name) vs \(team2Name) — All Square thru \(holesPlayed)"
+        }
+        let leader = margin > 0 ? team1Name : team2Name
+        return "\(leader) \(absMarg) UP thru \(holesPlayed)"
+    }
+}
+
+// MARK: - Team Round Score (for stroke play)
+
+/// A team's aggregate score for a single round (stroke play).
 struct TeamRoundScore: Identifiable, Hashable {
     var id: UUID { teamId }
     var teamId: UUID
@@ -226,14 +290,16 @@ struct RoundTeamMatchResult: Identifiable {
     var scoringRule: TeamScoringRule
     var individualMatches: [IndividualMatchResult]  // for match play formats
     var ninesMatches: [NinesMatchResult]  // for nines & overall format + match play with nines
-    var teamScores: [TeamRoundScore]  // for stroke play / best ball formats
+    var teamScores: [TeamRoundScore]  // for stroke play formats
     var teamNinesScores: [TeamNinesScore]  // for stroke play / best ball with F9/B9/OA
+    var bestBallMatches: [TeamBestBallMatchResult]  // for 4-ball best ball match play
 
     init(id: UUID, roundLabel: String, courseName: String, scoringRule: TeamScoringRule,
          individualMatches: [IndividualMatchResult] = [],
          ninesMatches: [NinesMatchResult] = [],
          teamScores: [TeamRoundScore] = [],
-         teamNinesScores: [TeamNinesScore] = []) {
+         teamNinesScores: [TeamNinesScore] = [],
+         bestBallMatches: [TeamBestBallMatchResult] = []) {
         self.id = id
         self.roundLabel = roundLabel
         self.courseName = courseName
@@ -242,6 +308,7 @@ struct RoundTeamMatchResult: Identifiable {
         self.ninesMatches = ninesMatches
         self.teamScores = teamScores
         self.teamNinesScores = teamNinesScores
+        self.bestBallMatches = bestBallMatches
     }
 
     /// Calculate total points earned by a team in this round, respecting the scoring format.
@@ -263,8 +330,10 @@ struct RoundTeamMatchResult: Identifiable {
             return singlesMatchPlayPoints(teamId: teamId)
         case .ninesAndOverall:
             return ninesAndOverallPoints(teamId: teamId)
-        case .teamStrokePlay, .teamBestBall:
+        case .teamStrokePlay:
             return teamComparisonPoints(teamId: teamId)
+        case .teamBestBall:
+            return bestBallMatchPlayPoints(teamId: teamId)
         }
     }
 
@@ -325,7 +394,22 @@ struct RoundTeamMatchResult: Identifiable {
         return points
     }
 
-    /// Stroke play / best ball: compare team totals against all other teams.
+    /// 4-ball best ball match play: win/halve/loss per team matchup
+    private func bestBallMatchPlayPoints(teamId: UUID) -> Double {
+        var points = 0.0
+        for match in bestBallMatches {
+            guard match.team1Id == teamId || match.team2Id == teamId else { continue }
+            guard match.isComplete else { continue }
+            if let winnerId = match.winningTeamId {
+                points += winnerId == teamId ? scoringRule.pointsPerWin : scoringRule.pointsPerLoss
+            } else if match.isHalved {
+                points += scoringRule.pointsPerHalve
+            }
+        }
+        return points
+    }
+
+    /// Stroke play: compare team totals against all other teams.
     /// For N teams: earns win/halve/loss points for each pairwise comparison.
     private func teamComparisonPoints(teamId: UUID) -> Double {
         guard teamScores.count >= 2 else { return 0 }

@@ -676,6 +676,10 @@ actor CloudKitService {
         if let pairingsData = try? JSONEncoder().encode(round.matchPairings) {
             record["matchPairingsData"] = pairingsData as CKRecordValue
         }
+        if let rule = round.teamScoringRule,
+           let ruleData = try? JSONEncoder().encode(rule) {
+            record["teamScoringRuleData"] = ruleData as CKRecordValue
+        }
         return record
     }
 
@@ -888,7 +892,12 @@ actor CloudKitService {
             matchPairings = (try? JSONDecoder().decode([MatchPairing].self, from: pairingsData)) ?? []
         }
 
-        return Round(
+        var teamScoringRule: TeamScoringRule?
+        if let ruleData = record["teamScoringRuleData"] as? Data {
+            teamScoringRule = try? JSONDecoder().decode(TeamScoringRule.self, from: ruleData)
+        }
+
+        let round = Round(
             id: UUID(uuidString: record.recordID.recordName) ?? UUID(),
             date: date,
             format: format,
@@ -896,6 +905,8 @@ actor CloudKitService {
             isComplete: (record["isComplete"] as? Int ?? 0) == 1,
             matchPairings: matchPairings
         )
+        round.teamScoringRule = teamScoringRule
+        return round
     }
 
     private func recordToWarRoomEvent(_ record: CKRecord) -> WarRoomEvent? {

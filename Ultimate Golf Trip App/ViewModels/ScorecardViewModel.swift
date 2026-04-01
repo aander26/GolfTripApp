@@ -129,6 +129,8 @@ class ScorecardViewModel {
                 pointsPerOverallHalve: useNines ? (Double(teamPointsPerOverallHalve) ?? 1.5) : 1.5,
                 useNinesAndOverall: teamUseNinesAndOverall
             )
+            // Store on both the round (permanent, per-round) and course (for display in TripRulesView)
+            round.teamScoringRule = rule
             course.teamScoringRule = rule
         }
 

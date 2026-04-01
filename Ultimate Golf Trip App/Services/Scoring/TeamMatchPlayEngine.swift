@@ -38,9 +38,14 @@ struct TeamMatchPlayEngine {
 
     // MARK: - Resolve Scoring Rule
 
-    /// Determine the scoring rule for a round: course-level rule takes priority, then trip defaults.
+    /// Determine the scoring rule for a round.
+    /// Priority: round-level rule → course-level rule (legacy) → trip defaults.
     static func resolveScoringRule(round: Round, trip: Trip) -> TeamScoringRule {
-        // Course-level rule (explicitly assigned by user)
+        // Round-level rule (set at round creation time — immutable per round)
+        if let roundRule = round.teamScoringRule {
+            return roundRule
+        }
+        // Course-level rule (legacy fallback for rounds created before per-round storage)
         if let courseRule = round.course?.teamScoringRule {
             return courseRule
         }
@@ -335,9 +340,11 @@ struct TeamMatchPlayEngine {
         )
     }
 
-    // MARK: - Team Best Ball
+    // MARK: - Team Best Ball (4-Ball Match Play)
 
-    /// Calculate team best ball: best net score per hole from each team.
+    /// Calculate 4-ball best ball match play: each team's lowest net score per hole
+    /// wins that hole (match play). Uses 90% handicap allowance with lowest-plays-scratch.
+    /// Generates round-robin team matchups for N≥2 teams.
     private static func calculateTeamBestBallRound(
         round: Round,
         course: Course,
@@ -345,53 +352,98 @@ struct TeamMatchPlayEngine {
         teams: [Team],
         scoringRule: TeamScoringRule
     ) -> RoundTeamMatchResult {
-        let teamScores: [TeamRoundScore] = teams.map { team in
-            let teamPlayers = players
-                .filter { $0.team?.id == team.id }
+        let teamPairs = generateTeamPairs(teams: teams)
+        let totalHoles = course.holes.count
+
+        var bestBallMatches: [TeamBestBallMatchResult] = []
+
+        for (teamA, teamB) in teamPairs {
+            let teamAPlayers = players
+                .filter { $0.team?.id == teamA.id }
+                .filter { round.playerIds.contains($0.id) }
+            let teamBPlayers = players
+                .filter { $0.team?.id == teamB.id }
                 .filter { round.playerIds.contains($0.id) }
 
-            let teamScorecards = teamPlayers.compactMap { round.scorecard(forPlayer: $0.id) }
+            let allPlayers = teamAPlayers + teamBPlayers
+            guard !allPlayers.isEmpty else { continue }
 
-            var totalBestBall = 0
-            var totalBestBallGross = 0
-            var totalPar = 0
-
-            for hole in course.holes {
-                if let bestNet = ScoringEngine.bestBallScore(
-                    teamScorecards: teamScorecards,
-                    holeNumber: hole.number
-                ) {
-                    totalBestBall += bestNet
-                    totalPar += hole.par
-                }
-                let grossScores = teamScorecards.compactMap { card -> Int? in
-                    guard let score = card.score(forHole: hole.number), score.isCompleted else { return nil }
-                    return score.strokes
-                }
-                if let bestGross = grossScores.min() {
-                    totalBestBallGross += bestGross
-                }
+            // Step 1: Get course handicaps and apply 90% allowance
+            let adjustedHandicaps: [(Player, Int)] = allPlayers.map { player in
+                let courseHcap = round.scorecard(forPlayer: player.id)?.courseHandicap ?? 0
+                let adjusted = HandicapEngine.bestBallHandicap(courseHandicap: courseHcap, allowancePercentage: 0.9)
+                return (player, adjusted)
             }
 
-            return TeamRoundScore(
-                teamId: team.id,
-                teamName: team.name,
-                teamColor: team.color,
-                totalGrossScore: totalBestBallGross,
-                totalNetScore: totalBestBall,
-                netScoreToPar: totalBestBall - totalPar
+            // Step 2: Lowest plays scratch — subtract the minimum from everyone
+            let lowestAdj = adjustedHandicaps.map(\.1).min() ?? 0
+            let strokesByPlayer: [UUID: [Int: Int]] = Dictionary(uniqueKeysWithValues:
+                adjustedHandicaps.map { (player, adj) in
+                    let netStrokes = adj - lowestAdj
+                    let strokeMap = HandicapEngine.distributeStrokes(courseHandicap: netStrokes, holes: course.holes)
+                    return (player.id, strokeMap)
+                }
             )
-        }
 
-        let hasScores = teamScores.contains { $0.totalNetScore > 0 }
+            // Step 3: Play each hole — best net from each team, match play scoring
+            var team1Wins = 0
+            var team2Wins = 0
+            var holesPlayed = 0
+
+            for hole in course.holes {
+                // Get best net for Team A
+                let teamANets: [Int] = teamAPlayers.compactMap { player in
+                    guard let card = round.scorecard(forPlayer: player.id),
+                          let score = card.score(forHole: hole.number),
+                          score.isCompleted else { return nil }
+                    let strokes = strokesByPlayer[player.id]?[hole.number] ?? 0
+                    return score.strokes - strokes
+                }
+
+                let teamBNets: [Int] = teamBPlayers.compactMap { player in
+                    guard let card = round.scorecard(forPlayer: player.id),
+                          let score = card.score(forHole: hole.number),
+                          score.isCompleted else { return nil }
+                    let strokes = strokesByPlayer[player.id]?[hole.number] ?? 0
+                    return score.strokes - strokes
+                }
+
+                guard let bestA = teamANets.min(), let bestB = teamBNets.min() else { continue }
+
+                holesPlayed += 1
+
+                if bestA < bestB {
+                    team1Wins += 1
+                } else if bestB < bestA {
+                    team2Wins += 1
+                }
+
+                // Early termination: if margin exceeds remaining holes
+                let margin = abs(team1Wins - team2Wins)
+                let remaining = totalHoles - holesPlayed
+                if margin > remaining { break }
+            }
+
+            bestBallMatches.append(TeamBestBallMatchResult(
+                team1Id: teamA.id,
+                team2Id: teamB.id,
+                team1Name: teamA.name,
+                team2Name: teamB.name,
+                team1Color: teamA.color,
+                team2Color: teamB.color,
+                team1HolesWon: team1Wins,
+                team2HolesWon: team2Wins,
+                holesPlayed: holesPlayed,
+                totalHoles: totalHoles
+            ))
+        }
 
         return RoundTeamMatchResult(
             id: round.id,
             roundLabel: course.name,
             courseName: course.name,
             scoringRule: scoringRule,
-            individualMatches: [],
-            teamScores: hasScores ? teamScores : []
+            bestBallMatches: bestBallMatches
         )
     }
 
@@ -520,8 +572,9 @@ struct TeamMatchPlayEngine {
 
     // MARK: - Team Best Ball with Nines
 
-    /// Calculate team best ball with F9/B9/OA scoring.
-    /// Computes best-ball per hole, then splits into F9/B9/Overall segments.
+    /// Calculate team best ball with F9/B9/OA scoring using 4-ball handicap rules.
+    /// Computes best-ball per hole with 90% allowance / lowest-plays-scratch,
+    /// then splits into F9/B9/Overall segments for points.
     private static func calculateTeamBestBallNinesRound(
         round: Round,
         course: Course,
@@ -533,20 +586,36 @@ struct TeamMatchPlayEngine {
             let teamPlayers = players
                 .filter { $0.team?.id == team.id }
                 .filter { round.playerIds.contains($0.id) }
-            let teamScorecards = teamPlayers.compactMap { round.scorecard(forPlayer: $0.id) }
+
+            // Apply 90% allowance + lowest-plays-scratch across ALL players in the round
+            let allRoundPlayers = players.filter { round.playerIds.contains($0.id) }
+            let allAdjusted = allRoundPlayers.map { p in
+                HandicapEngine.bestBallHandicap(
+                    courseHandicap: round.scorecard(forPlayer: p.id)?.courseHandicap ?? 0,
+                    allowancePercentage: 0.9
+                )
+            }
+            let lowestAdj = allAdjusted.min() ?? 0
 
             var f9Net = 0, b9Net = 0
 
             for hole in course.holes {
-                if let bestNet = ScoringEngine.bestBallScore(
-                    teamScorecards: teamScorecards,
-                    holeNumber: hole.number
-                ) {
-                    if hole.number <= 9 {
-                        f9Net += bestNet
-                    } else {
-                        b9Net += bestNet
-                    }
+                let nets: [Int] = teamPlayers.compactMap { player in
+                    guard let card = round.scorecard(forPlayer: player.id),
+                          let score = card.score(forHole: hole.number),
+                          score.isCompleted else { return nil }
+                    let adj = HandicapEngine.bestBallHandicap(
+                        courseHandicap: card.courseHandicap, allowancePercentage: 0.9
+                    )
+                    let netStrokes = adj - lowestAdj
+                    let strokeMap = HandicapEngine.distributeStrokes(courseHandicap: netStrokes, holes: course.holes)
+                    return score.strokes - (strokeMap[hole.number] ?? 0)
+                }
+                guard let bestNet = nets.min() else { continue }
+                if hole.number <= 9 {
+                    f9Net += bestNet
+                } else {
+                    b9Net += bestNet
                 }
             }
 
@@ -590,7 +659,7 @@ struct TeamMatchPlayEngine {
             )
             result.roundLabel = "R\(index + 1): \(course.name)"
 
-            let hasContent = !result.individualMatches.isEmpty || !result.ninesMatches.isEmpty || !result.teamScores.isEmpty || !result.teamNinesScores.isEmpty
+            let hasContent = !result.individualMatches.isEmpty || !result.ninesMatches.isEmpty || !result.teamScores.isEmpty || !result.teamNinesScores.isEmpty || !result.bestBallMatches.isEmpty
             if hasContent {
                 roundResults.append(result)
             }
@@ -651,8 +720,19 @@ struct TeamMatchPlayEngine {
                             halved += 1
                         }
                     }
+                } else if !roundResult.bestBallMatches.isEmpty {
+                    // 4-ball best ball match play
+                    for match in roundResult.bestBallMatches {
+                        guard match.team1Id == team.id || match.team2Id == team.id else { continue }
+                        guard match.isComplete else { continue }
+                        if let winnerId = match.winningTeamId {
+                            if winnerId == team.id { won += 1 } else { lost += 1 }
+                        } else if match.isHalved {
+                            halved += 1
+                        }
+                    }
                 } else {
-                    // Team-comparison formats (stroke play / best ball): rank among all teams
+                    // Team stroke play: rank among all teams
                     guard roundResult.teamScores.count >= 2 else { continue }
                     let myScore = roundResult.teamScores.first { $0.teamId == team.id }
                     guard let myScore else { continue }
