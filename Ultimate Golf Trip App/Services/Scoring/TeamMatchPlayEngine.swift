@@ -5,6 +5,48 @@ import Foundation
 /// team stroke play, and team best ball.
 struct TeamMatchPlayEngine {
 
+    // MARK: - Match Play Handicap Adjustment
+
+    /// Apply 90% allowance + lowest-plays-scratch to a group of players' course handicaps.
+    /// Returns a dictionary mapping player ID → adjusted stroke map (strokes per hole).
+    /// All match play formats use this for consistent handicap treatment.
+    static func matchPlayStrokeMaps(
+        playerIds: [UUID],
+        round: Round,
+        holes: [Hole]
+    ) -> [UUID: [Int: Int]] {
+        // Step 1: Get course handicaps and apply 90% allowance
+        let adjusted: [(UUID, Int)] = playerIds.map { playerId in
+            let courseHcap = round.scorecard(forPlayer: playerId)?.courseHandicap ?? 0
+            let adj = HandicapEngine.bestBallHandicap(courseHandicap: courseHcap, allowancePercentage: 0.9)
+            return (playerId, adj)
+        }
+
+        // Step 2: Lowest plays scratch
+        let lowest = adjusted.map(\.1).min() ?? 0
+
+        // Step 3: Distribute remaining strokes by hole index
+        return Dictionary(uniqueKeysWithValues: adjusted.map { (playerId, adj) in
+            let netStrokes = adj - lowest
+            let strokeMap = HandicapEngine.distributeStrokes(courseHandicap: netStrokes, holes: holes)
+            return (playerId, strokeMap)
+        })
+    }
+
+    /// Calculate net score per hole for a player using match play handicap rules.
+    /// Returns array of (holeNumber, netScore) for completed holes.
+    static func matchPlayNetScores(
+        card: Scorecard,
+        strokeMap: [Int: Int],
+        holes: [Hole]
+    ) -> [(holeNumber: Int, netScore: Int)] {
+        holes.compactMap { hole in
+            guard let score = card.score(forHole: hole.number), score.isCompleted else { return nil }
+            let strokes = strokeMap[hole.number] ?? 0
+            return (holeNumber: hole.number, netScore: score.strokes - strokes)
+        }
+    }
+
     // MARK: - Auto-Pairing
 
     /// Generate match pairings for a round based on team rosters.
@@ -233,6 +275,10 @@ struct TeamMatchPlayEngine {
             }
         }
 
+        // Build stroke maps for all players in the round using 90% + lowest-plays-scratch
+        let allPlayerIds = pairings.flatMap { [$0.player1Id, $0.player2Id] }
+        let strokeMaps = matchPlayStrokeMaps(playerIds: Array(Set(allPlayerIds)), round: round, holes: course.holes)
+
         let ninesMatches: [NinesMatchResult] = pairings.compactMap { pairing in
             guard let card1 = round.scorecard(forPlayer: pairing.player1Id),
                   let card2 = round.scorecard(forPlayer: pairing.player2Id),
@@ -242,27 +288,19 @@ struct TeamMatchPlayEngine {
 
             guard card1.holesCompleted > 0 || card2.holesCompleted > 0 else { return nil }
 
-            // Calculate net scores using handicap-adjusted stroke play
-            let adjusted1 = ScoringEngine.calculateStrokePlay(scorecard: card1, holes: course.holes)
-            let adjusted2 = ScoringEngine.calculateStrokePlay(scorecard: card2, holes: course.holes)
+            // Calculate net scores using match play handicap rules (90% + lowest-plays-scratch)
+            let p1Map = strokeMaps[p1.id] ?? [:]
+            let p2Map = strokeMaps[p2.id] ?? [:]
+            let p1Scores = matchPlayNetScores(card: card1, strokeMap: p1Map, holes: course.holes)
+            let p2Scores = matchPlayNetScores(card: card2, strokeMap: p2Map, holes: course.holes)
 
             // Calculate front 9, back 9, and overall net totals
-            let front9Scores1 = adjusted1.holeScores.filter { $0.holeNumber <= 9 && $0.isCompleted }
-            let front9Scores2 = adjusted2.holeScores.filter { $0.holeNumber <= 9 && $0.isCompleted }
-            let back9Scores1 = adjusted1.holeScores.filter { $0.holeNumber > 9 && $0.isCompleted }
-            let back9Scores2 = adjusted2.holeScores.filter { $0.holeNumber > 9 && $0.isCompleted }
+            let p1Front9Net = p1Scores.filter { $0.holeNumber <= 9 }.reduce(0) { $0 + $1.netScore }
+            let p2Front9Net = p2Scores.filter { $0.holeNumber <= 9 }.reduce(0) { $0 + $1.netScore }
+            let p1Back9Net = p1Scores.filter { $0.holeNumber > 9 }.reduce(0) { $0 + $1.netScore }
+            let p2Back9Net = p2Scores.filter { $0.holeNumber > 9 }.reduce(0) { $0 + $1.netScore }
 
-            let p1Front9Net = front9Scores1.reduce(0) { $0 + $1.netStrokes }
-            let p2Front9Net = front9Scores2.reduce(0) { $0 + $1.netStrokes }
-            let p1Back9Net = back9Scores1.reduce(0) { $0 + $1.netStrokes }
-            let p2Back9Net = back9Scores2.reduce(0) { $0 + $1.netStrokes }
-            let p1OverallNet = p1Front9Net + p1Back9Net
-            let p2OverallNet = p2Front9Net + p2Back9Net
-
-            let holesCompleted = min(
-                front9Scores1.count + back9Scores1.count,
-                front9Scores2.count + back9Scores2.count
-            )
+            let holesCompleted = min(p1Scores.count, p2Scores.count)
 
             return NinesMatchResult(
                 player1Id: p1.id,
@@ -275,8 +313,8 @@ struct TeamMatchPlayEngine {
                 player2Front9Net: p2Front9Net,
                 player1Back9Net: p1Back9Net,
                 player2Back9Net: p2Back9Net,
-                player1OverallNet: p1OverallNet,
-                player2OverallNet: p2OverallNet,
+                player1OverallNet: p1Front9Net + p1Back9Net,
+                player2OverallNet: p2Front9Net + p2Back9Net,
                 holesCompleted: holesCompleted,
                 totalHoles: course.holes.count
             )
@@ -472,7 +510,10 @@ struct TeamMatchPlayEngine {
             }
         }
 
-        // Reuse the same net stroke comparison as ninesAndOverall
+        // Build stroke maps for all players using 90% + lowest-plays-scratch
+        let allPlayerIds = pairings.flatMap { [$0.player1Id, $0.player2Id] }
+        let strokeMaps = matchPlayStrokeMaps(playerIds: Array(Set(allPlayerIds)), round: round, holes: course.holes)
+
         let ninesMatches: [NinesMatchResult] = pairings.compactMap { pairing in
             guard let card1 = round.scorecard(forPlayer: pairing.player1Id),
                   let card2 = round.scorecard(forPlayer: pairing.player2Id),
@@ -481,23 +522,18 @@ struct TeamMatchPlayEngine {
             else { return nil }
             guard card1.holesCompleted > 0 || card2.holesCompleted > 0 else { return nil }
 
-            let adjusted1 = ScoringEngine.calculateStrokePlay(scorecard: card1, holes: course.holes)
-            let adjusted2 = ScoringEngine.calculateStrokePlay(scorecard: card2, holes: course.holes)
+            // Use match play handicap rules (90% + lowest-plays-scratch)
+            let p1Map = strokeMaps[p1.id] ?? [:]
+            let p2Map = strokeMaps[p2.id] ?? [:]
+            let p1Scores = matchPlayNetScores(card: card1, strokeMap: p1Map, holes: course.holes)
+            let p2Scores = matchPlayNetScores(card: card2, strokeMap: p2Map, holes: course.holes)
 
-            let front9Scores1 = adjusted1.holeScores.filter { $0.holeNumber <= 9 && $0.isCompleted }
-            let front9Scores2 = adjusted2.holeScores.filter { $0.holeNumber <= 9 && $0.isCompleted }
-            let back9Scores1 = adjusted1.holeScores.filter { $0.holeNumber > 9 && $0.isCompleted }
-            let back9Scores2 = adjusted2.holeScores.filter { $0.holeNumber > 9 && $0.isCompleted }
+            let p1Front9Net = p1Scores.filter { $0.holeNumber <= 9 }.reduce(0) { $0 + $1.netScore }
+            let p2Front9Net = p2Scores.filter { $0.holeNumber <= 9 }.reduce(0) { $0 + $1.netScore }
+            let p1Back9Net = p1Scores.filter { $0.holeNumber > 9 }.reduce(0) { $0 + $1.netScore }
+            let p2Back9Net = p2Scores.filter { $0.holeNumber > 9 }.reduce(0) { $0 + $1.netScore }
 
-            let p1Front9Net = front9Scores1.reduce(0) { $0 + $1.netStrokes }
-            let p2Front9Net = front9Scores2.reduce(0) { $0 + $1.netStrokes }
-            let p1Back9Net = back9Scores1.reduce(0) { $0 + $1.netStrokes }
-            let p2Back9Net = back9Scores2.reduce(0) { $0 + $1.netStrokes }
-
-            let holesCompleted = min(
-                front9Scores1.count + back9Scores1.count,
-                front9Scores2.count + back9Scores2.count
-            )
+            let holesCompleted = min(p1Scores.count, p2Scores.count)
 
             return NinesMatchResult(
                 player1Id: p1.id,

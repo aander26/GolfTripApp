@@ -83,10 +83,11 @@ struct ScoringEngine {
 
     // MARK: - Match Play
 
-    /// Calculate match play result using the handicap difference method.
-    /// Only the difference in course handicaps matters: the higher-handicap player
-    /// receives strokes equal to the difference, allocated on the hardest holes
-    /// (lowest stroke index). The lower-handicap player plays at scratch.
+    /// Calculate match play result using proper handicap rules:
+    /// 1. Apply 90% allowance to each player's course handicap
+    /// 2. Lowest adjusted handicap plays scratch (subtract minimum from both)
+    /// 3. Distribute remaining strokes by hole stroke index (hardest holes first)
+    /// 4. Compare net scores hole-by-hole (win/lose/halve)
     static func calculateMatchPlay(
         player1Card: Scorecard,
         player2Card: Scorecard,
@@ -108,13 +109,18 @@ struct ScoringEngine {
             )
         }
 
-        // Calculate the handicap difference and distribute strokes to the higher-handicap player
-        let (p1Strokes, p2Strokes) = HandicapEngine.matchPlayStrokesGiven(
-            player1Handicap: player1Card.courseHandicap,
-            player2Handicap: player2Card.courseHandicap
-        )
-        let p1StrokeMap = HandicapEngine.distributeStrokes(courseHandicap: p1Strokes, holes: holes)
-        let p2StrokeMap = HandicapEngine.distributeStrokes(courseHandicap: p2Strokes, holes: holes)
+        // Step 1: Apply 90% allowance
+        let p1Adjusted = HandicapEngine.bestBallHandicap(courseHandicap: player1Card.courseHandicap, allowancePercentage: 0.9)
+        let p2Adjusted = HandicapEngine.bestBallHandicap(courseHandicap: player2Card.courseHandicap, allowancePercentage: 0.9)
+
+        // Step 2: Lowest plays scratch
+        let lowest = min(p1Adjusted, p2Adjusted)
+        let p1Net = p1Adjusted - lowest
+        let p2Net = p2Adjusted - lowest
+
+        // Step 3: Distribute strokes by hole stroke index
+        let p1StrokeMap = HandicapEngine.distributeStrokes(courseHandicap: p1Net, holes: holes)
+        let p2StrokeMap = HandicapEngine.distributeStrokes(courseHandicap: p2Net, holes: holes)
 
         var p1Wins = 0
         var p2Wins = 0
