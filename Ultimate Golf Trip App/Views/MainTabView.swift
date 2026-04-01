@@ -58,7 +58,12 @@ struct MainTabView: View {
     ) -> some View {
         TabView(selection: $selectedTab) {
             Tab("War Room", systemImage: "mappin.and.ellipse", value: 0) {
-                WarRoomView(viewModel: warRoomVM)
+                WarRoomView(
+                    viewModel: warRoomVM,
+                    leaderboardViewModel: leaderboardVM,
+                    challengesViewModel: challengesVM,
+                    selectedTab: $selectedTab
+                )
             }
 
             Tab("Leaderboard", systemImage: "trophy.fill", value: 1) {

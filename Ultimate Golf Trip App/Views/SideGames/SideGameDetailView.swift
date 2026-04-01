@@ -187,6 +187,7 @@ struct SideGameDetailView: View {
                 }
             }
         }
+        .themedList()
         .navigationTitle(game.type.rawValue)
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showingAddResult) {
@@ -268,6 +269,7 @@ struct PotWinnerPickerSheet: View {
                     }
                 }
             }
+            .themedList()
             .navigationTitle("Pool Winner")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

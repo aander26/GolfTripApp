@@ -108,7 +108,7 @@ struct CreateSideGameView: View {
                 // Designated Holes (for CTP and Long Drive)
                 if viewModel.selectedGameType == .closestToPin || viewModel.selectedGameType == .longDrive {
                     Section("Designated Holes") {
-                        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 6), spacing: 8) {
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 6), spacing: 6) {
                             let holeCount = viewModel.currentTrip?.rounds.first(where: { $0.id == viewModel.selectedRoundId })?.course?.holes.count
                                 ?? viewModel.currentTrip?.courses.first?.holes.count ?? 18
                             ForEach(1...holeCount, id: \.self) { hole in
@@ -120,8 +120,8 @@ struct CreateSideGameView: View {
                                     }
                                 } label: {
                                     Text("\(hole)")
-                                        .font(.caption)
-                                        .frame(width: 36, height: 36)
+                                        .font(.subheadline)
+                                        .frame(minWidth: 44, minHeight: 44)
                                         .background(
                                             viewModel.designatedHoles.contains(hole)
                                                 ? Theme.primary
@@ -147,8 +147,14 @@ struct CreateSideGameView: View {
                         viewModel.createSideGame()
                         dismiss()
                     }
-                    .disabled(viewModel.selectedParticipantIds.count < 2)
+                    .disabled(viewModel.selectedParticipantIds.count < 2 || (Double(viewModel.stakesAmount) ?? 0) <= 0)
                     .fontWeight(.semibold)
+                }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") {
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                    }
                 }
             }
         }

@@ -115,6 +115,7 @@ struct SideGamesView: View {
                 settlementButton
             }
         }
+        .themedList()
     }
 
     // MARK: - Empty State

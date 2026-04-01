@@ -3,19 +3,19 @@ import SwiftData
 
 @Model
 final class Trip {
-    var id: UUID
-    var name: String
-    var startDate: Date
-    var endDate: Date
-    var shareCode: String
-    var createdAt: Date
+    var id: UUID = UUID()
+    var name: String = ""
+    var startDate: Date = Date()
+    var endDate: Date = Date()
+    var shareCode: String = ""
+    var createdAt: Date = Date()
     var ownerProfileId: UUID?
 
     // MARK: - Trip Rules (match play points — Ryder Cup style defaults)
 
-    var pointsPerMatchWin: Double
-    var pointsPerMatchHalve: Double
-    var pointsPerMatchLoss: Double
+    var pointsPerMatchWin: Double = 1.0
+    var pointsPerMatchHalve: Double = 0.5
+    var pointsPerMatchLoss: Double = 0.0
 
     // MARK: - Relationships (cascade delete — deleting a trip removes all children)
 
@@ -56,6 +56,7 @@ final class Trip {
     var deletedSideGameIds: [String] = []
     var deletedSideBetIds: [String] = []
     var deletedWarRoomEventIds: [String] = []
+    var deletedRoundIds: [String] = []
 
     /// Schema version for forward-compatibility. Old clients that don't understand
     /// newer fields should not push data that regresses values set by newer clients.
@@ -303,6 +304,20 @@ final class Trip {
             deletedSideBetIds.append(id.uuidString)
         }
         sideBets.removeAll { $0.id == id }
+        Task { await CloudKitService.shared.deleteRecord(id: id) }
+    }
+
+    // MARK: - Rounds
+
+    func removeRound(id: UUID) {
+        if !deletedRoundIds.contains(id.uuidString) {
+            deletedRoundIds.append(id.uuidString)
+        }
+        rounds.removeAll { $0.id == id }
+        // Also remove any side bets tied to this round
+        for bet in sideBets where bet.round?.id == id {
+            removeSideBet(id: bet.id)
+        }
         Task { await CloudKitService.shared.deleteRecord(id: id) }
     }
 

@@ -68,6 +68,7 @@ struct LeaderboardView: View {
                         leaderboardHeader
                     }
                 }
+                .themedList()
             }
         }
     }
@@ -125,6 +126,7 @@ struct LeaderboardView: View {
                         leaderboardHeader
                     }
                 }
+                .themedList()
             }
         }
     }
@@ -208,6 +210,7 @@ struct LeaderboardView: View {
                         }
                     }
                 }
+                .themedList()
             }
         }
     }

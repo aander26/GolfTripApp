@@ -4,9 +4,9 @@ import SwiftData
 
 @Model
 final class Team {
-    var id: UUID
-    var name: String
-    var colorRaw: String
+    var id: UUID = UUID()
+    var name: String = ""
+    var colorRaw: String = "Blue"
 
     // Relationships
     @Relationship(inverse: \Player.team)

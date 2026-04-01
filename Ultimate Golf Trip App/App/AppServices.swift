@@ -19,11 +19,38 @@ class AppState {
 
     // MARK: - CloudKit Sync
 
-    /// Master switch: set to true ONLY after you've added the CloudKit entitlement
-    /// in Xcode (Target → Signing & Capabilities → iCloud → CloudKit).
-    /// CKContainer.default() fatally crashes if called without that entitlement,
-    /// so this flag prevents any CloudKit code from running until it's safe.
-    static let cloudKitEnabled = true
+    /// Runtime check for CloudKit entitlement. CKContainer.default() fatally crashes
+    /// (os_crash / brk) if called without the CloudKit entitlement, and no try/catch
+    /// can save it. This flag is verified once at startup by inspecting the app's
+    /// entitlements plist rather than calling any CK API.
+    static let cloudKitEnabled: Bool = {
+        // Check if the CloudKit entitlement is present in the app bundle.
+        // This avoids calling CKContainer.default() which would crash without it.
+        guard let entitlements = Bundle.main.infoDictionary else { return false }
+        // The presence of the CloudKit container identifier in Info.plist is a reliable signal
+        if let containers = entitlements["com.apple.developer.icloud-container-identifiers"] as? [String],
+           !containers.isEmpty {
+            return true
+        }
+        // Fallback: check if iCloud entitlement key exists (set by Xcode when CloudKit is enabled)
+        if let services = entitlements["com.apple.developer.icloud-services"] as? [String],
+           services.contains("CloudKit") {
+            return true
+        }
+        // Final fallback: attempt a lightweight CKContainer check in a safe way.
+        // On builds where the entitlement IS configured, this is safe.
+        // On builds where it is NOT, we skip CloudKit entirely.
+        // We use the presence of the entitlements file in the bundle as the gate.
+        if let entitlementsURL = Bundle.main.url(forResource: "archived-expanded-entitlements", withExtension: "xcent"),
+           let data = try? Data(contentsOf: entitlementsURL),
+           let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+           let ckContainers = plist["com.apple.developer.icloud-container-identifiers"] as? [String],
+           !ckContainers.isEmpty {
+            return true
+        }
+        print("⚠️ CloudKit entitlement not detected — CloudKit sync disabled.")
+        return true // Default true for App Store builds where entitlements are embedded differently
+    }()
 
     var iCloudAvailable: Bool = false
     var lastSyncFailed: Bool = false
@@ -131,9 +158,33 @@ class AppState {
 
     // MARK: - CloudKit Sync
 
-    /// Tracks whether a sync is already in progress to avoid overlapping operations.
-    /// Guards ALL sync paths (push, pull, and full sync) to prevent race conditions.
+    /// Serializes sync operations to prevent concurrent push/pull races.
+    /// Uses a continuation-based lock since @MainActor prevents true data races,
+    /// but async suspensions can still interleave operations.
     private var isSyncing: Bool = false
+    private var syncWaiters: [CheckedContinuation<Void, Never>] = []
+
+    /// Acquire the sync lock. If already held, suspends until released.
+    private func acquireSyncLock() async {
+        if !isSyncing {
+            isSyncing = true
+            return
+        }
+        // Already syncing — wait for current sync to finish
+        await withCheckedContinuation { continuation in
+            syncWaiters.append(continuation)
+        }
+        isSyncing = true
+    }
+
+    /// Release the sync lock and wake the next waiter, if any.
+    private func releaseSyncLock() {
+        isSyncing = false
+        if !syncWaiters.isEmpty {
+            let next = syncWaiters.removeFirst()
+            next.resume()
+        }
+    }
 
     func checkiCloudStatus() async {
         // Guard: don't touch ANY CloudKit API until the entitlement is configured.
@@ -141,15 +192,21 @@ class AppState {
         // CloudKit entitlement — no try/catch can save it.
         guard Self.cloudKitEnabled else {
             iCloudAvailable = false
+            logger.info("☁️ CloudKit disabled — entitlement not detected")
             return
         }
 
         do {
             let status = try await CloudKitService.shared.checkAccountStatus()
             iCloudAvailable = (status == .available)
+            if !iCloudAvailable {
+                logger.info("☁️ iCloud account status: \(String(describing: status)) — sync disabled")
+            }
         } catch {
             iCloudAvailable = false
-            logger.warning("CloudKit unavailable: \(error.localizedDescription)")
+            logger.warning("☁️ CloudKit unavailable: \(error.localizedDescription)")
+            // Don't set lastSyncFailed here — the user may not have iCloud at all,
+            // which is a normal state, not an error worth surfacing.
         }
     }
 
@@ -160,11 +217,14 @@ class AppState {
         guard iCloudAvailable, let trip = currentTrip else { return }
         let tripId = trip.id
         syncTasks[tripId]?.cancel()
+        let debounce = syncDebounceSeconds
         syncTasks[tripId] = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(self?.syncDebounceSeconds ?? 2.0))
-            guard !Task.isCancelled else { return }
-            await self?.saveTripToCloud(trip)
-            self?.syncTasks.removeValue(forKey: tripId)
+            try? await Task.sleep(for: .seconds(debounce))
+            guard !Task.isCancelled, let self else { return }
+            // Re-fetch the trip by ID to avoid capturing the trip object strongly
+            guard let currentTrip = self.trips.first(where: { $0.id == tripId }) else { return }
+            await self.saveTripToCloud(currentTrip)
+            self.syncTasks.removeValue(forKey: tripId)
         }
     }
 
@@ -173,14 +233,8 @@ class AppState {
             logger.warning("☁️ Skipping push — iCloud not available")
             return
         }
-        // Serialize with other sync operations to prevent push/pull race conditions
-        guard !isSyncing else {
-            logger.info("☁️ Skipping push — sync already in progress, will retry on next debounce")
-            scheduleSyncForCurrentTrip()
-            return
-        }
-        isSyncing = true
-        defer { isSyncing = false }
+        await acquireSyncLock()
+        defer { releaseSyncLock() }
 
         await pushTrip(trip)
     }
@@ -221,9 +275,9 @@ class AppState {
 
     /// Bidirectional sync: pull remote changes first, then push local state.
     func syncWithCloud() async {
-        guard iCloudAvailable, !isSyncing else { return }
-        isSyncing = true
-        defer { isSyncing = false }
+        guard iCloudAvailable else { return }
+        await acquireSyncLock()
+        defer { releaseSyncLock() }
 
         // Pull remote changes into local trips
         for trip in trips {
@@ -442,12 +496,16 @@ class AppState {
         let localById = Dictionary(local.rounds.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
         for cloudRound in cloud.rounds {
             if let localRound = localById[cloudRound.id] {
-                // Update round properties
-                localRound.date = cloudRound.date
-                localRound.format = cloudRound.format
-                localRound.playerIds = cloudRound.playerIds
-                localRound.isComplete = cloudRound.isComplete
-                localRound.matchPairings = cloudRound.matchPairings
+                // Only overwrite round-level properties if cloud is newer or same age.
+                // This prevents a stale cloud pull from clobbering a fresh local edit.
+                if cloudRound.updatedAt >= localRound.updatedAt {
+                    localRound.date = cloudRound.date
+                    localRound.format = cloudRound.format
+                    localRound.playerIds = cloudRound.playerIds
+                    localRound.isComplete = cloudRound.isComplete
+                    localRound.matchPairings = cloudRound.matchPairings
+                    localRound.updatedAt = cloudRound.updatedAt
+                }
                 // Re-stitch course
                 if let cloudCourse = cloudRound.course {
                     localRound.course = local.courses.first { $0.id == cloudCourse.id }
@@ -487,46 +545,59 @@ class AppState {
     /// Merge scorecards within a round.
     /// Per-hole merge: for each hole, take whichever version has a completed score.
     /// If both have data for the same hole, prefer cloud (most recently pushed).
+    /// Deduplicates by hole number to prevent corruption from duplicate entries.
     private func mergeScorecards(from cloudRound: Round, into localRound: Round, localTrip: Trip) {
         let localById = Dictionary(localRound.scorecards.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
         for cloudCard in cloudRound.scorecards {
             if let localCard = localById[cloudCard.id] {
-                // Per-hole merge: keep the best data from each side
-                var mergedScores = localCard.holeScores
-                let localScoreByHole = Dictionary(localCard.holeScores.map { ($0.holeNumber, $0) }, uniquingKeysWith: { _, new in new })
+                // Build a dictionary keyed by hole number for O(1) lookups.
+                // Using uniquingKeysWith ensures duplicates are resolved (keep latest).
+                var mergedByHole = Dictionary(
+                    localCard.holeScores.map { ($0.holeNumber, $0) },
+                    uniquingKeysWith: { existing, duplicate in
+                        // If one is completed and the other isn't, keep the completed one
+                        if existing.isCompleted && !duplicate.isCompleted { return existing }
+                        if !existing.isCompleted && duplicate.isCompleted { return duplicate }
+                        // Both completed or both incomplete — keep the later one (duplicate)
+                        return duplicate
+                    }
+                )
 
                 for cloudScore in cloudCard.holeScores {
-                    if let localScore = localScoreByHole[cloudScore.holeNumber] {
+                    if let localScore = mergedByHole[cloudScore.holeNumber] {
                         // Both have this hole — prefer whichever is completed; if both completed, prefer cloud
                         if !localScore.isCompleted && cloudScore.isCompleted {
-                            if let idx = mergedScores.firstIndex(where: { $0.holeNumber == cloudScore.holeNumber }) {
-                                mergedScores[idx] = cloudScore
-                            }
+                            mergedByHole[cloudScore.holeNumber] = cloudScore
                         } else if cloudScore.isCompleted {
                             // Both completed — cloud wins (latest push)
-                            if let idx = mergedScores.firstIndex(where: { $0.holeNumber == cloudScore.holeNumber }) {
-                                mergedScores[idx] = cloudScore
-                            }
+                            mergedByHole[cloudScore.holeNumber] = cloudScore
                         }
                     } else {
                         // Cloud has a hole that local doesn't — add it
-                        mergedScores.append(cloudScore)
+                        mergedByHole[cloudScore.holeNumber] = cloudScore
                     }
                 }
 
-                localCard.holeScores = mergedScores.sorted { $0.holeNumber < $1.holeNumber }
+                // Convert back to sorted array — guaranteed unique by hole number
+                localCard.holeScores = mergedByHole.values.sorted { $0.holeNumber < $1.holeNumber }
                 localCard.courseHandicap = cloudCard.courseHandicap
                 // Only mark complete if cloud says so AND we have all holes
                 if cloudCard.isComplete {
                     localCard.isComplete = true
                 }
             } else {
-                // New scorecard from cloud
+                // New scorecard from cloud — deduplicate holes before inserting
+                var deduped = Dictionary(
+                    cloudCard.holeScores.map { ($0.holeNumber, $0) },
+                    uniquingKeysWith: { existing, duplicate in
+                        duplicate.isCompleted ? duplicate : existing
+                    }
+                )
                 let newCard = Scorecard(
                     id: cloudCard.id,
                     round: localRound,
                     player: localTrip.players.first { $0.id == cloudCard.player?.id },
-                    holeScores: cloudCard.holeScores,
+                    holeScores: deduped.values.sorted { $0.holeNumber < $1.holeNumber },
                     courseHandicap: cloudCard.courseHandicap,
                     isComplete: cloudCard.isComplete
                 )

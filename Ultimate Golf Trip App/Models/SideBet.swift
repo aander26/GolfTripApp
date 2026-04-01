@@ -5,19 +5,19 @@ import SwiftData
 /// (SwiftData class name kept as `SideBet` to preserve existing persistent stores.)
 @Model
 final class SideBet {
-    var id: UUID
-    var name: String
-    var betTypeRaw: String
+    var id: UUID = UUID()
+    var name: String = ""
+    var betTypeRaw: String = "highestTotal"
     var targetValue: Double?
-    var participants: [UUID]
-    var stake: String
-    var statusRaw: String
+    var participants: [UUID] = []
+    var stake: String = "Bragging Rights"
+    var statusRaw: String = "active"
     var winnerId: UUID?
 
     /// When true, each participant contributes `potAmount` and the winner takes the total pool.
-    var isPotBet: Bool
+    var isPotBet: Bool = false
     /// Per-player entry amount (only used when `isPotBet` is true).
-    var potAmount: Double
+    var potAmount: Double = 0
 
     /// When true, this challenge uses net scoring (after handicap strokes).
     var useNetScoring: Bool = false

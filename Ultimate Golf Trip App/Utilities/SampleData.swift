@@ -74,17 +74,19 @@ enum SampleData {
                 courseHandicap: courseHandicap,
                 holes: course.holes
             )
-            // Fill in some scores for first 9 holes
-            for i in 0..<9 {
+            // Fill in all 18 holes for richer preview data
+            for i in 0..<course.holes.count {
                 let par = course.holes[i].par
-                let score = par + Int.random(in: -1...2)
+                let score = par + Int.random(in: -1...3)
                 card.holeScores[i].strokes = max(1, score)
                 card.holeScores[i].putts = Int.random(in: 1...3)
             }
+            card.isComplete = true
             return card
         }
 
         roundObj.scorecards = scorecards
+        roundObj.isComplete = true
         return roundObj
     }()
 
@@ -305,5 +307,9 @@ enum SampleData {
 
     static func makeChallengesViewModel(appState: AppState? = nil) -> ChallengesViewModel {
         ChallengesViewModel(appState: appState ?? makeAppState())
+    }
+
+    static func makeDailyRecapViewModel(appState: AppState? = nil) -> DailyRecapViewModel {
+        DailyRecapViewModel(appState: appState ?? makeAppState())
     }
 }

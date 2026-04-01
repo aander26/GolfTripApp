@@ -45,6 +45,7 @@ actor GolfCourseAPIService {
     private var requestCountDate: Date?
     private let maxDailyRequests = 250 // Leave buffer
 
+    /// Check-only: returns true if budget remains, without incrementing.
     private var canMakeRequest: Bool {
         let today = Calendar.current.startOfDay(for: Date())
         if requestCountDate != today {
@@ -54,11 +55,19 @@ actor GolfCourseAPIService {
         return requestCount < maxDailyRequests
     }
 
+    /// Atomically checks and increments the request counter.
+    /// Returns true if the request is allowed, false if the daily budget is exhausted.
+    private func consumeRequest() -> Bool {
+        guard canMakeRequest else { return false }
+        requestCount += 1
+        return true
+    }
+
     /// Search for a course by name and location.
     /// Uses alphabetical page estimation to find the right section of the API's
     /// paginated listing (~25K courses in alphabetical order, ~20 per page).
     func findCourse(name: String, city: String = "", state: String = "") async -> CourseData? {
-        guard isConfigured, canMakeRequest else { return nil }
+        guard isConfigured else { return nil }
         guard let key = apiKey, !key.isEmpty else { return nil }
 
         let cacheKey = "\(name.lowercased())|\(city.lowercased())|\(state.lowercased())"
@@ -77,7 +86,7 @@ actor GolfCourseAPIService {
             .filter { $0 >= 1 }
 
         for page in pagesToTry {
-            guard canMakeRequest else { break }
+            guard consumeRequest() else { break }
 
             guard let result = await fetchPageAndSearch(page: page, name: normalizedName, key: key) else {
                 continue
@@ -117,7 +126,7 @@ actor GolfCourseAPIService {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
         do {
-            requestCount += 1
+            guard consumeRequest() else { return nil }
             let (data, response) = try await session.data(for: request)
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
 

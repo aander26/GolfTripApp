@@ -3,17 +3,17 @@ import SwiftData
 
 @Model
 final class SideGame {
-    var id: UUID
-    var typeRaw: String
-    var participantIds: [UUID]
-    var stakes: Double
-    var stakesLabel: String
-    var results: [SideGameResult]
-    var isActive: Bool
-    var designatedHoles: [Int]
+    var id: UUID = UUID()
+    var typeRaw: String = "skins"
+    var participantIds: [UUID] = []
+    var stakes: Double = 0
+    var stakesLabel: String = ""
+    var results: [SideGameResult] = []
+    var isActive: Bool = true
+    var designatedHoles: [Int] = []
 
     /// When true, stakes represents a per-player entry and the winner takes the full pool.
-    var isPotGame: Bool
+    var isPotGame: Bool = false
 
     /// The winner of a pool game (set when the pool is resolved).
     var potWinnerId: UUID?

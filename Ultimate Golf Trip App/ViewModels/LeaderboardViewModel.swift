@@ -16,7 +16,7 @@ class LeaderboardViewModel {
 
     var overallLeaderboard: [LeaderboardEntry] {
         guard let trip = currentTrip else { return [] }
-        return LeaderboardEngine.generateLeaderboard(trip: trip)
+        return LeaderboardEngine.generateLeaderboard(trip: trip, sortByNet: showingNetScores)
     }
 
     // MARK: - Round Leaderboard
@@ -29,7 +29,8 @@ class LeaderboardViewModel {
         return LeaderboardEngine.generateRoundLeaderboard(
             round: round,
             course: course,
-            players: trip.players
+            players: trip.players,
+            sortByNet: showingNetScores
         )
     }
 

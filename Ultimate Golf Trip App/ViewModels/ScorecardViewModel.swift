@@ -6,9 +6,17 @@ class ScorecardViewModel {
     var appState: AppState
 
     var selectedCourseId: UUID?
-    var selectedFormat: ScoringFormat = .strokePlay
+    var selectedFormat: ScoringFormat = .strokePlay {
+        didSet {
+            if selectedFormat != oldValue {
+                updateTeamScoringDefault()
+            }
+        }
+    }
     var selectedPlayerIds: Set<UUID> = []
     var selectedRoundId: UUID?
+    /// When true, the user explicitly backed out to the rounds list; suppresses auto-selection of active rounds.
+    var showingRoundsList = false
     var currentHole: Int = 1
     var showingRoundSetup = false
     var showingRoundComplete = false
@@ -42,6 +50,10 @@ class ScorecardViewModel {
            let round = currentTrip?.round(withId: selectedId) {
             return round
         }
+        // Don't auto-select a round if the user explicitly backed out to the rounds list
+        if showingRoundsList {
+            return nil
+        }
         return currentTrip?.activeRound ?? currentTrip?.rounds.last { !$0.isComplete }
     }
 
@@ -49,6 +61,22 @@ class ScorecardViewModel {
     var holeCount: Int {
         let count = currentRound?.course?.holes.count ?? 18
         return max(count, 1)
+    }
+
+    // MARK: - Format Defaults
+
+    /// Update the team scoring format to a sensible default when the round format changes.
+    private func updateTeamScoringDefault() {
+        switch selectedFormat {
+        case .bestBall:
+            selectedTeamScoringFormat = .teamBestBall
+        case .matchPlay:
+            selectedTeamScoringFormat = .traditionalMatchPlay
+        case .scramble:
+            selectedTeamScoringFormat = .teamStrokePlay
+        case .strokePlay, .stableford:
+            break
+        }
     }
 
     // MARK: - Round Setup
@@ -106,17 +134,38 @@ class ScorecardViewModel {
 
         appState.saveContext()
         currentHole = 1
+        showingRoundsList = false
         showingRoundSetup = false
     }
 
     // MARK: - Score Entry
 
-    func updateScore(roundId: UUID, playerId: UUID, holeNumber: Int, strokes: Int, putts: Int = 0) {
-        guard strokes >= 0 else { return }
-        guard let trip = currentTrip,
-              let round = trip.rounds.first(where: { $0.id == roundId }),
-              let card = round.scorecards.first(where: { $0.player?.id == playerId }),
-              let course = round.course else { return }
+    /// Last error from a failed score update, surfaced in the UI via an alert.
+    var scoreUpdateError: String?
+
+    /// Returns true on success, false on failure (sets scoreUpdateError).
+    @discardableResult
+    func updateScore(roundId: UUID, playerId: UUID, holeNumber: Int, strokes: Int, putts: Int = 0) -> Bool {
+        guard strokes >= 0 else {
+            scoreUpdateError = "Invalid stroke count."
+            return false
+        }
+        guard let trip = currentTrip else {
+            scoreUpdateError = "No active trip. Please select a trip first."
+            return false
+        }
+        guard let round = trip.rounds.first(where: { $0.id == roundId }) else {
+            scoreUpdateError = "Round not found. It may have been deleted."
+            return false
+        }
+        guard let card = round.scorecards.first(where: { $0.player?.id == playerId }) else {
+            scoreUpdateError = "Scorecard not found for this player."
+            return false
+        }
+        guard let course = round.course else {
+            scoreUpdateError = "No course assigned to this round."
+            return false
+        }
 
         card.updateScore(
             forHole: holeNumber,
@@ -134,7 +183,12 @@ class ScorecardViewModel {
             strokeMap: strokeMap
         )
 
+        // Touch the round's updatedAt so merge conflict resolution prefers this version
+        round.updatedAt = Date()
+
         appState.saveContext()
+        scoreUpdateError = nil
+        return true
     }
 
     func nextHole() {
@@ -234,10 +288,22 @@ class ScorecardViewModel {
         appState.saveContext()
     }
 
+    // MARK: - Round Deletion
+
+    func deleteRound(_ roundId: UUID) {
+        guard let trip = currentTrip else { return }
+        if selectedRoundId == roundId {
+            selectedRoundId = nil
+        }
+        trip.removeRound(id: roundId)
+        appState.saveContext()
+    }
+
     // MARK: - Round Selection
 
     func selectRound(_ round: Round) {
         selectedRoundId = round.id
+        showingRoundsList = false
         currentHole = 1
     }
 

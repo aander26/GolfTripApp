@@ -3,7 +3,7 @@ import Foundation
 struct LeaderboardEngine {
 
     /// Generate leaderboard entries for a trip across all rounds
-    static func generateLeaderboard(trip: Trip) -> [LeaderboardEntry] {
+    static func generateLeaderboard(trip: Trip, sortByNet: Bool = true) -> [LeaderboardEntry] {
         var entries: [UUID: LeaderboardEntry] = [:]
 
         // Initialize entries for all players
@@ -22,7 +22,9 @@ struct LeaderboardEngine {
             let processed = ScoringEngine.processRound(round: round, course: course)
 
             for scorecard in processed.scorecards {
-                guard var entry = entries[scorecard.playerId] else { continue }
+                // Skip orphaned scorecards (no linked player) — they'd match no entry
+                // and would silently corrupt leaderboard data if the fallback ID collided.
+                guard !scorecard.isOrphaned, var entry = entries[scorecard.playerId] else { continue }
 
                 let grossToPar = ScoringEngine.scoreToPar(scorecard: scorecard)
                 let netToPar = ScoringEngine.netScoreToPar(scorecard: scorecard)
@@ -54,22 +56,26 @@ struct LeaderboardEngine {
         var sorted = Array(entries.values)
             .filter { $0.holesCompleted > 0 }
             .sorted { a, b in
-                if a.netScoreToPar != b.netScoreToPar {
+                if sortByNet {
+                    if a.netScoreToPar != b.netScoreToPar { return a.netScoreToPar < b.netScoreToPar }
+                    return a.scoreToPar < b.scoreToPar
+                } else {
+                    if a.scoreToPar != b.scoreToPar { return a.scoreToPar < b.scoreToPar }
                     return a.netScoreToPar < b.netScoreToPar
                 }
-                return a.scoreToPar < b.scoreToPar
             }
 
-        assignPositions(&sorted)
+        assignPositions(&sorted, sortByNet: sortByNet)
         return sorted
     }
 
     /// Generate leaderboard for a single round
-    static func generateRoundLeaderboard(round: Round, course: Course, players: [Player]) -> [LeaderboardEntry] {
+    static func generateRoundLeaderboard(round: Round, course: Course, players: [Player], sortByNet: Bool = true) -> [LeaderboardEntry] {
         let processed = ScoringEngine.processRound(round: round, course: course)
 
         var entries: [LeaderboardEntry] = processed.scorecards.compactMap { scorecard in
-            guard let player = players.first(where: { $0.id == scorecard.playerId }) else { return nil }
+            guard !scorecard.isOrphaned,
+                  let player = players.first(where: { $0.id == scorecard.playerId }) else { return nil }
 
             let grossToPar = ScoringEngine.scoreToPar(scorecard: scorecard)
             let netToPar = ScoringEngine.netScoreToPar(scorecard: scorecard)
@@ -101,14 +107,17 @@ struct LeaderboardEngine {
             entries.sort { $0.stablefordPoints > $1.stablefordPoints }
         default:
             entries.sort { a, b in
-                if a.netScoreToPar != b.netScoreToPar {
+                if sortByNet {
+                    if a.netScoreToPar != b.netScoreToPar { return a.netScoreToPar < b.netScoreToPar }
+                    return a.scoreToPar < b.scoreToPar
+                } else {
+                    if a.scoreToPar != b.scoreToPar { return a.scoreToPar < b.scoreToPar }
                     return a.netScoreToPar < b.netScoreToPar
                 }
-                return a.scoreToPar < b.scoreToPar
             }
         }
 
-        assignPositions(&entries, useStableford: isStableford)
+        assignPositions(&entries, useStableford: isStableford, sortByNet: sortByNet)
         return entries
     }
 
@@ -121,7 +130,7 @@ struct LeaderboardEngine {
     }
 
     /// Assign positions with tie handling
-    private static func assignPositions(_ entries: inout [LeaderboardEntry], useStableford: Bool = false) {
+    private static func assignPositions(_ entries: inout [LeaderboardEntry], useStableford: Bool = false, sortByNet: Bool = true) {
         guard !entries.isEmpty else { return }
 
         var position = 1
@@ -131,9 +140,12 @@ struct LeaderboardEngine {
             let isTied: Bool
             if useStableford {
                 isTied = entries[i].stablefordPoints == entries[i - 1].stablefordPoints
-            } else {
+            } else if sortByNet {
                 isTied = entries[i].netScoreToPar == entries[i - 1].netScoreToPar &&
                          entries[i].scoreToPar == entries[i - 1].scoreToPar
+            } else {
+                isTied = entries[i].scoreToPar == entries[i - 1].scoreToPar &&
+                         entries[i].netScoreToPar == entries[i - 1].netScoreToPar
             }
             if !isTied {
                 position = i + 1

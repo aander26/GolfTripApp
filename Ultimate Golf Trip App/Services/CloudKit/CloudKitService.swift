@@ -10,14 +10,24 @@ actor CloudKitService {
 
     // Lazy container access — CKContainer.default() crashes when the CloudKit
     // entitlement is missing, so we must NOT call it during init().
+    // All callers must go through AppState.cloudKitEnabled first.
     private var _container: CKContainer?
     private var container: CKContainer {
-        if _container == nil {
-            _container = CKContainer.default()
+        get throws {
+            if let existing = _container { return existing }
+            // Guard: AppState.cloudKitEnabled should have been checked before any
+            // CloudKitService call. This is a last-resort safety net.
+            guard AppState.cloudKitEnabled else {
+                throw CKError(.permissionFailure)
+            }
+            let c = CKContainer.default()
+            _container = c
+            return c
         }
-        return _container ?? CKContainer.default()
     }
-    private var publicDB: CKDatabase { container.publicCloudDatabase }
+    private var publicDB: CKDatabase {
+        get throws { try container.publicCloudDatabase }
+    }
 
     private init() {
         // Intentionally empty — container is lazily created on first use
@@ -26,7 +36,7 @@ actor CloudKitService {
     // MARK: - Account Status
 
     func checkAccountStatus() async throws -> CKAccountStatus {
-        try await container.accountStatus()
+        try await (try container).accountStatus()
     }
 
     var isAvailable: Bool {

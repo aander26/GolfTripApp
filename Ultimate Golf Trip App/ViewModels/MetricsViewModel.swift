@@ -9,6 +9,12 @@ typealias MetricsViewModel = ChallengesViewModel
 class ChallengesViewModel {
     var appState: AppState
 
+    // Edit bet form
+    var showingEditBet = false
+    var editingBet: SideBet?
+    var editBetName: String = ""
+    var editBetStake: String = ""
+
     // Create bet form
     var showingCreateBet = false
     var newBetName: String = ""
@@ -50,6 +56,11 @@ class ChallengesViewModel {
         guard !newBetName.isEmpty,
               newBetParticipants.count >= 2,
               let trip = currentTrip else { return }
+
+        // Validate all participants still exist in the trip
+        let validParticipants = newBetParticipants.filter { trip.player(withId: $0) != nil }
+        guard validParticipants.count >= 2 else { return }
+        newBetParticipants = validParticipants
 
         // Round-based challenges require a round
         if newBetType.isRoundBased {
@@ -107,6 +118,31 @@ class ChallengesViewModel {
         guard let trip = currentTrip else { return }
         trip.removeSideBet(id: betId)
         appState.saveContext()
+    }
+
+    func startEditingBet(_ bet: SideBet) {
+        editingBet = bet
+        editBetName = bet.name
+        editBetStake = bet.stake
+        showingEditBet = true
+    }
+
+    func saveBetEdits() {
+        guard let bet = editingBet else { return }
+        let trimmedName = editBetName.trimmingCharacters(in: .whitespaces)
+        guard !trimmedName.isEmpty else { return }
+
+        bet.name = trimmedName
+        bet.stake = editBetStake
+        appState.saveContext()
+        resetEditBetForm()
+    }
+
+    private func resetEditBetForm() {
+        editingBet = nil
+        editBetName = ""
+        editBetStake = ""
+        showingEditBet = false
     }
 
     /// Get participant players for a bet.

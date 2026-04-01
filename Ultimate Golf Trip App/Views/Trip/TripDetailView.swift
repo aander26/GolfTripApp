@@ -12,7 +12,25 @@ struct TripDetailView: View {
                 if let trip = viewModel.currentTrip {
                     // Trip Info
                     Section("Trip Info") {
-                        LabeledContent("Dates", value: trip.dateRange)
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(trip.name)
+                                    .font(.headline)
+                                Text(trip.dateRange)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            viewModel.startEditingTrip()
+                        }
+                        .accessibilityLabel("Trip \(trip.name), \(trip.dateRange), tap to edit")
+
                         LabeledContent("Share Code", value: trip.shareCode)
                             .contextMenu {
                                 Button("Copy Code") {
@@ -177,7 +195,11 @@ struct TripDetailView: View {
                     )
                 }
             }
+            .themedList()
             .navigationTitle(viewModel.currentTrip?.name ?? "Trip")
+            .sheet(isPresented: $viewModel.showingEditTrip) {
+                EditTripSheet(viewModel: viewModel)
+            }
             .sheet(isPresented: $viewModel.showingAddPlayer) {
                 AddPlayerSheet(viewModel: viewModel)
             }

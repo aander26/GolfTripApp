@@ -1,39 +1,122 @@
 import SwiftUI
+import UIKit
+import Combine
 
-// MARK: - Bold Links Theme
+// MARK: - Bold Links Theme (Light + Dark)
 
 enum Theme {
-    // Backgrounds
-    static let background = Color(red: 0.953, green: 0.957, blue: 0.965)         // #F3F4F6
-    static let backgroundDark = Color(red: 0.067, green: 0.094, blue: 0.153)     // #111827
-    static let cardBackground = Color.white
+    // MARK: Helpers
 
-    // Primary accent (emerald)
-    static let primary = Color(red: 0.063, green: 0.725, blue: 0.506)            // #10B981
-    static let primaryDark = Color(red: 0.020, green: 0.588, blue: 0.412)        // #059669
-    static let primaryLight = Color(red: 0.820, green: 0.980, blue: 0.898)       // #D1FAE5
-    static let primaryMuted = Color(red: 0.063, green: 0.725, blue: 0.506).opacity(0.1)
+    /// Creates an adaptive color that resolves per the current interface style.
+    private static func adaptive(light: UIColor, dark: UIColor) -> Color {
+        Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? dark : light })
+    }
 
-    // Text
-    static let textPrimary = Color(red: 0.067, green: 0.094, blue: 0.153)        // #111827
-    static let textSecondary = Color(red: 0.420, green: 0.447, blue: 0.498)      // #6B7280
+    private static func rgb(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> UIColor {
+        UIColor(red: r, green: g, blue: b, alpha: 1)
+    }
+
+    // MARK: Backgrounds
+
+    static var background: Color {
+        adaptive(
+            light: rgb(0.953, 0.957, 0.965),   // #F3F4F6
+            dark:  rgb(0.059, 0.078, 0.098)     // #0F1419
+        )
+    }
+
+    static var backgroundDark: Color {
+        adaptive(
+            light: rgb(0.067, 0.094, 0.153),   // #111827
+            dark:  rgb(0.039, 0.059, 0.078)     // #0A0F14
+        )
+    }
+
+    static var cardBackground: Color {
+        adaptive(
+            light: .white,
+            dark:  rgb(0.102, 0.137, 0.196)     // #1A2332
+        )
+    }
+
+    // MARK: Primary accent (emerald)
+
+    static var primary: Color {
+        adaptive(
+            light: rgb(0.063, 0.725, 0.506),   // #10B981
+            dark:  rgb(0.204, 0.827, 0.600)     // #34D399
+        )
+    }
+
+    static var primaryDark: Color {
+        adaptive(
+            light: rgb(0.020, 0.588, 0.412),   // #059669
+            dark:  rgb(0.063, 0.725, 0.506)     // #10B981
+        )
+    }
+
+    static var primaryLight: Color {
+        adaptive(
+            light: rgb(0.820, 0.980, 0.898),   // #D1FAE5
+            dark:  rgb(0.024, 0.306, 0.231)     // #064E3B
+        )
+    }
+
+    static var primaryMuted: Color {
+        adaptive(
+            light: UIColor(red: 0.063, green: 0.725, blue: 0.506, alpha: 0.1),
+            dark:  UIColor(red: 0.204, green: 0.827, blue: 0.600, alpha: 0.15)
+        )
+    }
+
+    // MARK: Text
+
+    static var textPrimary: Color {
+        adaptive(
+            light: rgb(0.067, 0.094, 0.153),   // #111827
+            dark:  rgb(0.910, 0.925, 0.941)     // #E8ECF0
+        )
+    }
+
+    static var textSecondary: Color {
+        adaptive(
+            light: rgb(0.420, 0.447, 0.498),   // #6B7280
+            dark:  rgb(0.533, 0.600, 0.651)     // #8899A6
+        )
+    }
+
     static let textOnPrimary = Color.white
 
-    // Avatar accent colors
+    static let defaultPlayerColor: PlayerColor = .blue
+
+    // MARK: Avatar accent colors (vibrant in both modes)
+
     static let avatar1 = Color(red: 0.063, green: 0.725, blue: 0.506)            // emerald
     static let avatar2 = Color(red: 0.545, green: 0.361, blue: 0.965)            // violet
     static let avatar3 = Color(red: 0.976, green: 0.451, blue: 0.086)            // orange
     static let avatar4 = Color(red: 0.024, green: 0.714, blue: 0.831)            // cyan
 
-    // Status
+    // MARK: Status (vibrant in both modes)
+
     static let success = Color(red: 0.063, green: 0.725, blue: 0.506)            // #10B981
     static let warning = Color(red: 0.961, green: 0.620, blue: 0.043)            // #F59E0B
     static let error = Color(red: 0.937, green: 0.267, blue: 0.267)              // #EF4444
 
-    // Borders
-    static let border = Color(red: 0.898, green: 0.906, blue: 0.922)             // #E5E7EB
-    static let borderStrong = Color(red: 0.820, green: 0.835, blue: 0.859)       // #D1D5DB
+    // MARK: Borders
 
+    static var border: Color {
+        adaptive(
+            light: rgb(0.898, 0.906, 0.922),   // #E5E7EB
+            dark:  rgb(0.165, 0.227, 0.290)     // #2A3A4A
+        )
+    }
+
+    static var borderStrong: Color {
+        adaptive(
+            light: rgb(0.820, 0.835, 0.859),   // #D1D5DB
+            dark:  rgb(0.227, 0.290, 0.353)     // #3A4A5A
+        )
+    }
 }
 
 // MARK: - Legacy Color Aliases (backward compatible)
@@ -61,6 +144,23 @@ extension ShapeStyle where Self == Color {
     static var eagle: Color { Color.eagle }
     static var bogey: Color { Color.bogey }
     static var doubleBogey: Color { Color.doubleBogey }
+}
+
+// MARK: - Themed List Modifier
+
+/// Strips the default List/Form background so Theme.background shows through.
+struct ThemedListStyle: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .scrollContentBackground(.hidden)
+            .background(Theme.background)
+    }
+}
+
+extension View {
+    func themedList() -> some View {
+        modifier(ThemedListStyle())
+    }
 }
 
 // MARK: - Card Style Modifier
@@ -223,6 +323,32 @@ extension Date {
 
     var timeFormatted: String {
         CachedFormatters.time.string(from: self)
+    }
+}
+
+// MARK: - Minute Timer for Time-Sensitive Views
+
+/// A view modifier that triggers a re-render every minute.
+/// Attach to views displaying relative times (e.g. "5m ago", "upcoming").
+struct MinuteTimerModifier: ViewModifier {
+    @State private var tick = false
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { tick.toggle() }
+            .onReceive(
+                Timer.publish(every: 60, on: .main, in: .common).autoconnect()
+            ) { _ in
+                tick.toggle()
+            }
+            .id(tick)
+    }
+}
+
+extension View {
+    /// Re-renders the view every minute to keep relative timestamps fresh.
+    func refreshEveryMinute() -> some View {
+        modifier(MinuteTimerModifier())
     }
 }
 

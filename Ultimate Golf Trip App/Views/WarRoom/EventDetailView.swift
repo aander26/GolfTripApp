@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct EventDetailView: View {
+    @Bindable var viewModel: WarRoomViewModel
     let event: WarRoomEvent
     let players: [Player]
     let onDelete: () -> Void
@@ -138,10 +139,19 @@ struct EventDetailView: View {
             .navigationTitle("Event Details")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Edit") {
+                        viewModel.startEditingEvent(event)
+                    }
+                    .foregroundStyle(Theme.primary)
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                         .foregroundStyle(Theme.primary)
                 }
+            }
+            .sheet(isPresented: $viewModel.showingEditEvent) {
+                EditEventSheet(viewModel: viewModel)
             }
         }
     }
@@ -161,6 +171,115 @@ struct EventDetailView: View {
     }
 }
 
+// MARK: - Edit Event Sheet
+
+struct EditEventSheet: View {
+    @Bindable var viewModel: WarRoomViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Event Type") {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            ForEach(EventType.allCases) { type in
+                                EventTypeButton(
+                                    type: type,
+                                    isSelected: viewModel.editEventType == type,
+                                    onTap: { viewModel.editEventType = type }
+                                )
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+
+                Section("Details") {
+                    TextField("Title", text: $viewModel.editEventTitle)
+                    TextField("Subtitle (optional)", text: $viewModel.editEventSubtitle)
+                    TextField("Location (optional)", text: $viewModel.editEventLocation)
+                }
+
+                Section("When") {
+                    DatePicker("Start", selection: $viewModel.editEventDateTime)
+
+                    Toggle("Has End Time", isOn: $viewModel.editEventHasEndTime)
+                        .tint(Theme.primary)
+
+                    if viewModel.editEventHasEndTime {
+                        DatePicker("End", selection: $viewModel.editEventEndDateTime)
+                    }
+                }
+
+                if let trip = viewModel.currentTrip, !trip.players.isEmpty {
+                    Section("Who's Involved?") {
+                        ForEach(trip.players) { player in
+                            Button {
+                                if viewModel.editEventPlayerIds.contains(player.id) {
+                                    viewModel.editEventPlayerIds.remove(player.id)
+                                } else {
+                                    viewModel.editEventPlayerIds.insert(player.id)
+                                }
+                            } label: {
+                                HStack {
+                                    Text(player.initials)
+                                        .font(.system(size: 12, weight: .bold))
+                                        .foregroundStyle(.white)
+                                        .frame(width: 30, height: 30)
+                                        .background(player.avatarColor.color)
+                                        .clipShape(Circle())
+                                    Text(player.name)
+                                        .foregroundStyle(Theme.textPrimary)
+                                    Spacer()
+                                    if viewModel.editEventPlayerIds.contains(player.id) {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundStyle(Theme.primary)
+                                    } else {
+                                        Image(systemName: "circle")
+                                            .foregroundStyle(Theme.textSecondary)
+                                    }
+                                }
+                            }
+                        }
+
+                        Button("Select All") {
+                            if let trip = viewModel.currentTrip {
+                                viewModel.editEventPlayerIds = Set(trip.players.map(\.id))
+                            }
+                        }
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.primary)
+                    }
+                }
+
+                Section("Notes (Optional)") {
+                    TextField("Add any details...", text: $viewModel.editEventNotes, axis: .vertical)
+                        .lineLimit(3...6)
+                }
+            }
+            .navigationTitle("Edit Event")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        viewModel.showingEditEvent = false
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        viewModel.saveEventEdits()
+                        dismiss()
+                    }
+                    .disabled(viewModel.editEventTitle.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .fontWeight(.semibold)
+                }
+            }
+        }
+    }
+}
+
 #Preview {
     let players = SampleData.playersWithTeams
     let event = WarRoomEvent(
@@ -174,6 +293,7 @@ struct EventDetailView: View {
         playerIds: players.map(\.id)
     )
     EventDetailView(
+        viewModel: SampleData.makeWarRoomViewModel(),
         event: event,
         players: players,
         onDelete: {}

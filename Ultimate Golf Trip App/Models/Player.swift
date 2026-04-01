@@ -4,10 +4,10 @@ import SwiftData
 
 @Model
 final class Player {
-    var id: UUID
-    var name: String
-    var handicapIndex: Double
-    var avatarColorRaw: String
+    var id: UUID = UUID()
+    var name: String = ""
+    var handicapIndex: Double = 0.0
+    var avatarColorRaw: String = "blue"
 
     /// Links this Player to the device user's profile (nil for players added by others)
     var userProfileId: UUID?

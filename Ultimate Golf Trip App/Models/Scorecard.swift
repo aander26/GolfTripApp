@@ -3,10 +3,10 @@ import SwiftData
 
 @Model
 final class Scorecard {
-    var id: UUID
-    var holeScores: [HoleScore]
-    var courseHandicap: Int
-    var isComplete: Bool
+    var id: UUID = UUID()
+    var holeScores: [HoleScore] = []
+    var courseHandicap: Int = 0
+    var isComplete: Bool = false
 
     // Relationships
     var round: Round?

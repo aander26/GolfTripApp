@@ -2,19 +2,82 @@ import SwiftUI
 
 struct WarRoomView: View {
     @Bindable var viewModel: WarRoomViewModel
+    var leaderboardViewModel: LeaderboardViewModel
+    var challengesViewModel: ChallengesViewModel
+    @Binding var selectedTab: Int
     @Environment(AppState.self) private var appState
+    @State private var recapViewModel: DailyRecapViewModel?
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
                     if viewModel.currentTrip != nil {
+                        // MARK: - Dashboard Widgets
+
+                        // Next Up with countdown
+                        if let nextEvent = viewModel.nextEvent {
+                            CountdownNextUpCard(event: nextEvent)
+                        }
+
+                        // Standings (top 3)
+                        StandingsWidget(
+                            entries: leaderboardViewModel.overallLeaderboard,
+                            onSeeAll: { selectedTab = 1 }
+                        )
+
+                        // Active Challenges
+                        if !challengesViewModel.activeBets.isEmpty {
+                            ActiveChallengesWidget(
+                                challenges: challengesViewModel.activeBets,
+                                standingsResolver: { challengesViewModel.liveStandings(for: $0) }
+                            )
+                        }
+
+                        // Today's Schedule
+                        TodayScheduleWidget(
+                            events: viewModel.todayEvents,
+                            players: viewModel.currentTrip?.players ?? []
+                        )
+
+                        // MARK: - Existing Sections
+
                         // Travel Status Bar
                         TravelStatusBar(viewModel: viewModel)
 
-                        // Next Up Card
-                        if let nextEvent = viewModel.nextEvent {
-                            NextUpCard(event: nextEvent)
+                        // Daily Recap
+                        NavigationLink {
+                            DailyRecapView(viewModel: {
+                                if let existing = recapViewModel { return existing }
+                                let vm = DailyRecapViewModel(appState: appState)
+                                recapViewModel = vm
+                                return vm
+                            }())
+                        } label: {
+                            HStack(spacing: 12) {
+                                Text("📋")
+                                    .font(.title2)
+                                    .frame(width: 40, height: 40)
+                                    .background(Theme.primaryLight)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Daily Recap")
+                                        .font(.headline)
+                                        .foregroundStyle(Theme.textPrimary)
+                                    Text("Awards, scores & highlights")
+                                        .font(.caption)
+                                        .foregroundStyle(Theme.textSecondary)
+                                }
+
+                                Spacer()
+
+                                Image(systemName: "chevron.right")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .padding()
+                            .cardStyle(padded: false)
                         }
 
                         // Active Polls
@@ -22,7 +85,7 @@ struct WarRoomView: View {
                             activePollsSection
                         }
 
-                        // Timeline
+                        // Full Schedule Timeline
                         timelineSection
                     } else {
                         emptyState
@@ -65,6 +128,7 @@ struct WarRoomView: View {
             .sheet(isPresented: $viewModel.showingEventDetail) {
                 if let event = viewModel.selectedEvent {
                     EventDetailView(
+                        viewModel: viewModel,
                         event: event,
                         players: viewModel.currentTrip?.players ?? [],
                         onDelete: {
@@ -416,6 +480,9 @@ struct StatusPickerSheet: View {
                     Button("Cancel") { dismiss() }
                 }
             }
+            .onAppear {
+                viewModel.prepareStatusForm()
+            }
         }
     }
 }
@@ -436,10 +503,25 @@ func eventColor(for type: EventType) -> Color {
 
 // MARK: - Preview
 
-#Preview {
+#Preview("Light") {
     let appState = SampleData.makeAppState()
     WarRoomView(
-        viewModel: SampleData.makeWarRoomViewModel(appState: appState)
+        viewModel: SampleData.makeWarRoomViewModel(appState: appState),
+        leaderboardViewModel: LeaderboardViewModel(appState: appState),
+        challengesViewModel: ChallengesViewModel(appState: appState),
+        selectedTab: .constant(0)
     )
     .environment(appState)
+}
+
+#Preview("Dark") {
+    let appState = SampleData.makeAppState()
+    WarRoomView(
+        viewModel: SampleData.makeWarRoomViewModel(appState: appState),
+        leaderboardViewModel: LeaderboardViewModel(appState: appState),
+        challengesViewModel: ChallengesViewModel(appState: appState),
+        selectedTab: .constant(0)
+    )
+    .environment(appState)
+    .preferredColorScheme(.dark)
 }

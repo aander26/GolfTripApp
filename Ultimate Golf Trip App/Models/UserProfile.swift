@@ -4,11 +4,11 @@ import SwiftData
 
 @Model
 final class UserProfile {
-    var id: UUID
-    var name: String
-    var handicapIndex: Double
-    var avatarColorRaw: String
-    var createdAt: Date
+    var id: UUID = UUID()
+    var name: String = ""
+    var handicapIndex: Double = 0.0
+    var avatarColorRaw: String = "blue"
+    var createdAt: Date = Date()
 
     init(
         id: UUID = UUID(),

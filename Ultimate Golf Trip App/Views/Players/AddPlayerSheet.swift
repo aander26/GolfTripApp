@@ -68,6 +68,12 @@ struct AddPlayerSheet: View {
                     .disabled(viewModel.newPlayerName.isEmpty)
                     .fontWeight(.semibold)
                 }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") {
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                    }
+                }
             }
         }
     }
@@ -542,9 +548,9 @@ struct AddCourseSheet: View {
 
     private func teeBoxColor(_ color: String) -> Color {
         switch color.lowercased() {
-        case "black": return .black
+        case "black": return Color(red: 0.15, green: 0.15, blue: 0.15)
         case "blue": return .blue
-        case "white": return Color(white: 0.85)
+        case "white": return Color(red: 0.85, green: 0.85, blue: 0.85)
         case "gold", "yellow": return .yellow
         case "red": return .red
         case "green": return .green
@@ -695,9 +701,9 @@ struct EditCourseSheet: View {
 
     private func teeBoxDisplayColor(_ color: String) -> Color {
         switch color.lowercased() {
-        case "black": return .black
+        case "black": return Color(red: 0.15, green: 0.15, blue: 0.15)
         case "blue": return .blue
-        case "white": return Color(white: 0.85)
+        case "white": return Color(red: 0.85, green: 0.85, blue: 0.85)
         case "gold", "yellow": return .yellow
         case "red": return .red
         case "green": return .green

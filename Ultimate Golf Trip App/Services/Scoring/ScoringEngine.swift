@@ -17,9 +17,16 @@ struct ProcessedScorecard {
         holeScores.first { $0.holeNumber == number }
     }
 
+    /// True when the scorecard had no player reference and playerId is a fallback.
+    /// Callers (leaderboards, settlements) should exclude orphaned scorecards from rankings.
+    let isOrphaned: Bool
+
     init(from scorecard: Scorecard, processedScores: [HoleScore]? = nil) {
+        let hasPlayer = scorecard.player != nil
+        self.isOrphaned = !hasPlayer
         // Use a stable fallback UUID derived from the scorecard ID rather than a random one,
-        // so scores for orphaned scorecards don't silently vanish with a different UUID each time
+        // so scores for orphaned scorecards don't silently vanish with a different UUID each time.
+        // Callers should check isOrphaned before including this in leaderboards/settlements.
         self.playerId = scorecard.player?.id ?? scorecard.id
         self.holeScores = processedScores ?? scorecard.holeScores
         self.courseHandicap = scorecard.courseHandicap
@@ -76,19 +83,23 @@ struct ScoringEngine {
 
     // MARK: - Match Play
 
+    /// Calculate match play result using the handicap difference method.
+    /// Only the difference in course handicaps matters: the higher-handicap player
+    /// receives strokes equal to the difference, allocated on the hardest holes
+    /// (lowest stroke index). The lower-handicap player plays at scratch.
     static func calculateMatchPlay(
         player1Card: Scorecard,
         player2Card: Scorecard,
         holes: [Hole]
     ) -> MatchPlayResult {
-        let adjusted1 = calculateStrokePlay(scorecard: player1Card, holes: holes)
-        let adjusted2 = calculateStrokePlay(scorecard: player2Card, holes: holes)
+        let p1Id = player1Card.player?.id ?? player1Card.id
+        let p2Id = player2Card.player?.id ?? player2Card.id
 
         let totalHoles = holes.count
         guard totalHoles > 0 else {
             return MatchPlayResult(
-                player1Id: adjusted1.playerId,
-                player2Id: adjusted2.playerId,
+                player1Id: p1Id,
+                player2Id: p2Id,
                 player1Wins: 0,
                 player2Wins: 0,
                 holesPlayed: 0,
@@ -96,20 +107,33 @@ struct ScoringEngine {
                 result: "No holes"
             )
         }
+
+        // Calculate the handicap difference and distribute strokes to the higher-handicap player
+        let (p1Strokes, p2Strokes) = HandicapEngine.matchPlayStrokesGiven(
+            player1Handicap: player1Card.courseHandicap,
+            player2Handicap: player2Card.courseHandicap
+        )
+        let p1StrokeMap = HandicapEngine.distributeStrokes(courseHandicap: p1Strokes, holes: holes)
+        let p2StrokeMap = HandicapEngine.distributeStrokes(courseHandicap: p2Strokes, holes: holes)
+
         var p1Wins = 0
         var p2Wins = 0
         var holesPlayed = 0
 
         for holeNum in 1...totalHoles {
-            guard let score1 = adjusted1.score(forHole: holeNum),
-                  let score2 = adjusted2.score(forHole: holeNum),
+            guard let score1 = player1Card.score(forHole: holeNum),
+                  let score2 = player2Card.score(forHole: holeNum),
                   score1.isCompleted && score2.isCompleted else { continue }
 
             holesPlayed += 1
 
-            if score1.netStrokes < score2.netStrokes {
+            // Net score = gross - match play strokes received on this hole
+            let p1Net = score1.strokes - (p1StrokeMap[holeNum] ?? 0)
+            let p2Net = score2.strokes - (p2StrokeMap[holeNum] ?? 0)
+
+            if p1Net < p2Net {
                 p1Wins += 1
-            } else if score2.netStrokes < score1.netStrokes {
+            } else if p2Net < p1Net {
                 p2Wins += 1
             }
 
@@ -133,8 +157,8 @@ struct ScoringEngine {
         }
 
         return MatchPlayResult(
-            player1Id: adjusted1.playerId,
-            player2Id: adjusted2.playerId,
+            player1Id: p1Id,
+            player2Id: p2Id,
             player1Wins: p1Wins,
             player2Wins: p2Wins,
             holesPlayed: holesPlayed,

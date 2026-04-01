@@ -25,6 +25,9 @@ struct CourseSearchResult: Identifiable {
 @MainActor
 class GolfCourseSearchService: NSObject {
 
+    /// Error message from the last failed search, surfaced in the UI.
+    var searchError: String?
+
     var searchText: String = "" {
         didSet {
             if searchText.count >= 2 {
@@ -157,7 +160,8 @@ class GolfCourseSearchService: NSObject {
             searchText = name
             suggestions = []
         } catch {
-            // Search failed — clear state
+            print("⚠️ Course search failed: \(error.localizedDescription)")
+            searchError = "Course search failed. Check your connection and try again."
         }
 
         isSearching = false

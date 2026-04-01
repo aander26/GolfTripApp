@@ -3,18 +3,18 @@ import SwiftData
 
 @Model
 final class Course {
-    var id: UUID
-    var name: String
-    var holes: [Hole]
-    var slopeRating: Double
-    var courseRating: Double
-    var city: String
-    var state: String
+    var id: UUID = UUID()
+    var name: String = ""
+    var holes: [Hole] = []
+    var slopeRating: Double = 113
+    var courseRating: Double = 72.0
+    var city: String = ""
+    var state: String = ""
     var latitude: Double?
     var longitude: Double?
 
     /// Available tee boxes for this course (populated from database or manual entry)
-    var teeBoxes: [TeeBox]
+    var teeBoxes: [TeeBox] = []
 
     /// The name of the currently selected tee box (e.g. "Blue")
     var selectedTeeBoxName: String?

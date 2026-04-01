@@ -3,14 +3,17 @@ import SwiftData
 
 @Model
 final class Round {
-    var id: UUID
-    var date: Date
-    var formatRaw: String
-    var playerIds: [UUID]
-    var isComplete: Bool
+    var id: UUID = UUID()
+    var date: Date = Date()
+    var formatRaw: String = "strokePlay"
+    var playerIds: [UUID] = []
+    var isComplete: Bool = false
+
+    /// Timestamp of last modification, used for merge conflict resolution.
+    var updatedAt: Date = Date()
 
     /// Optional match pairings for team match play. When empty, engine auto-pairs by team roster order.
-    var matchPairings: [MatchPairing]
+    var matchPairings: [MatchPairing] = []
 
     // Relationships
     var course: Course?

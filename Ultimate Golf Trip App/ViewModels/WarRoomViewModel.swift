@@ -13,6 +13,19 @@ class WarRoomViewModel {
     var selectedEvent: WarRoomEvent?
     var selectedDay: Date?
 
+    // Event editing
+    var showingEditEvent = false
+    var editingEvent: WarRoomEvent?
+    var editEventType: EventType = .teeTime
+    var editEventTitle: String = ""
+    var editEventSubtitle: String = ""
+    var editEventDateTime: Date = Date()
+    var editEventEndDateTime: Date = Date()
+    var editEventHasEndTime: Bool = false
+    var editEventLocation: String = ""
+    var editEventNotes: String = ""
+    var editEventPlayerIds: Set<UUID> = []
+
     // Event form state
     var newEventType: EventType = .teeTime
     var newEventTitle: String = ""
@@ -112,6 +125,10 @@ class WarRoomViewModel {
         upcomingEvents.first
     }
 
+    var todayEvents: [WarRoomEvent] {
+        eventsForDay(Date())
+    }
+
     var playerStatuses: [(Player, TravelStatus?)] {
         guard let trip = currentTrip else { return [] }
         return trip.players.map { player in
@@ -153,7 +170,60 @@ class WarRoomViewModel {
         appState.saveContext()
     }
 
+    func startEditingEvent(_ event: WarRoomEvent) {
+        editingEvent = event
+        editEventType = event.type
+        editEventTitle = event.title
+        editEventSubtitle = event.subtitle
+        editEventDateTime = event.dateTime
+        editEventEndDateTime = event.endDateTime ?? event.dateTime
+        editEventHasEndTime = event.endDateTime != nil
+        editEventLocation = event.location
+        editEventNotes = event.notes
+        editEventPlayerIds = Set(event.playerIds)
+        showingEditEvent = true
+    }
+
+    func saveEventEdits() {
+        guard let event = editingEvent else { return }
+        let trimmedTitle = editEventTitle.trimmingCharacters(in: .whitespaces)
+        guard !trimmedTitle.isEmpty else { return }
+
+        event.type = editEventType
+        event.title = trimmedTitle
+        event.subtitle = editEventSubtitle
+        event.dateTime = editEventDateTime
+        event.endDateTime = editEventHasEndTime ? editEventEndDateTime : nil
+        event.location = editEventLocation
+        event.notes = editEventNotes
+        event.playerIds = Array(editEventPlayerIds)
+        appState.saveContext()
+        resetEditEventForm()
+    }
+
+    private func resetEditEventForm() {
+        editingEvent = nil
+        editEventType = .teeTime
+        editEventTitle = ""
+        editEventSubtitle = ""
+        editEventDateTime = Date()
+        editEventEndDateTime = Date()
+        editEventHasEndTime = false
+        editEventLocation = ""
+        editEventNotes = ""
+        editEventPlayerIds = []
+        showingEditEvent = false
+    }
+
     // MARK: - Travel Status
+
+    func prepareStatusForm() {
+        guard let trip = currentTrip,
+              let myPlayer = appState.myCurrentPlayer,
+              let existing = trip.travelStatus(forPlayer: myPlayer.id) else { return }
+        selectedStatusType = existing.status
+        statusFlightInfo = existing.flightInfo ?? ""
+    }
 
     func updateMyStatus(playerId: UUID) {
         guard let trip = currentTrip,

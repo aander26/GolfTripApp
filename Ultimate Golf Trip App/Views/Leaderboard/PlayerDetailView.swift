@@ -3,6 +3,11 @@ import SwiftUI
 struct PlayerDetailView: View {
     let entry: LeaderboardEntry
     let trip: Trip
+    @Environment(AppState.self) private var appState
+    @State private var showingEditPlayer = false
+    @State private var editName: String = ""
+    @State private var editHandicap: String = ""
+    @State private var editColor: PlayerColor = .blue
 
     var body: some View {
         List {
@@ -13,8 +18,73 @@ struct PlayerDetailView: View {
             challengesSection
             pointsBalanceSection
         }
+        .themedList()
         .navigationTitle(entry.playerName)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Edit") {
+                    if let player = player {
+                        editName = player.name
+                        editHandicap = player.handicapIndex == 0 ? "" : String(format: "%.1f", player.handicapIndex)
+                        editColor = player.avatarColor
+                        showingEditPlayer = true
+                    }
+                }
+                .disabled(player == nil)
+            }
+        }
+        .sheet(isPresented: $showingEditPlayer) {
+            NavigationStack {
+                Form {
+                    Section("Player Details") {
+                        TextField("Name", text: $editName)
+                            .textInputAutocapitalization(.words)
+                        TextField("Handicap Index", text: $editHandicap)
+                            .keyboardType(.decimalPad)
+                    }
+
+                    Section("Avatar Color") {
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 6), spacing: 12) {
+                            ForEach(PlayerColor.allCases) { color in
+                                Circle()
+                                    .fill(color.color)
+                                    .frame(width: 36, height: 36)
+                                    .overlay {
+                                        if editColor == color {
+                                            Image(systemName: "checkmark")
+                                                .font(.caption.bold())
+                                                .foregroundStyle(.white)
+                                        }
+                                    }
+                                    .onTapGesture { editColor = color }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+                .navigationTitle("Edit Player")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { showingEditPlayer = false }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Save") {
+                            if let player = player {
+                                player.name = editName.trimmingCharacters(in: .whitespaces)
+                                player.handicapIndex = Double(editHandicap) ?? 0.0
+                                player.avatarColor = editColor
+                                appState.saveContext()
+                            }
+                            showingEditPlayer = false
+                        }
+                        .disabled(editName.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .fontWeight(.semibold)
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - Header

@@ -3,13 +3,13 @@ import SwiftData
 
 @Model
 final class Poll {
-    var id: UUID
-    var question: String
-    var options: [PollOption]
+    var id: UUID = UUID()
+    var question: String = ""
+    var options: [PollOption] = []
     var createdBy: UUID?
-    var createdAt: Date
-    var isActive: Bool
-    var allowMultipleVotes: Bool
+    var createdAt: Date = Date()
+    var isActive: Bool = true
+    var allowMultipleVotes: Bool = false
 
     // Relationships
     @Relationship(inverse: \Trip.polls)

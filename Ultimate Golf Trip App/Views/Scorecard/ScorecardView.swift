@@ -2,6 +2,9 @@ import SwiftUI
 
 struct ScorecardView: View {
     @Bindable var viewModel: ScorecardViewModel
+    @State private var quickEntryMode = false
+    @State private var showingDeleteConfirmation = false
+    @State private var roundToDelete: Round?
 
     var body: some View {
         NavigationStack {
@@ -9,12 +12,22 @@ struct ScorecardView: View {
                 if let round = viewModel.currentRound,
                    let trip = viewModel.currentTrip,
                    let course = round.course {
-                    HoleByHoleScoringView(
-                        viewModel: viewModel,
-                        round: round,
-                        course: course,
-                        players: trip.players.filter { round.playerIds.contains($0.id) }
-                    )
+                    let roundPlayers = trip.players.filter { round.playerIds.contains($0.id) }
+                    if quickEntryMode {
+                        QuickEntryView(
+                            viewModel: viewModel,
+                            round: round,
+                            course: course,
+                            players: roundPlayers
+                        )
+                    } else {
+                        HoleByHoleScoringView(
+                            viewModel: viewModel,
+                            round: round,
+                            course: course,
+                            players: roundPlayers
+                        )
+                    }
                 } else if let trip = viewModel.currentTrip, !trip.rounds.isEmpty {
                     roundsList(trip: trip)
                 } else {
@@ -27,12 +40,22 @@ struct ScorecardView: View {
                     ToolbarItem(placement: .cancellationAction) {
                         Button {
                             viewModel.selectedRoundId = nil
+                            viewModel.showingRoundsList = true
                         } label: {
                             Image(systemName: "chevron.left")
                         }
                         .accessibilityLabel("Back to rounds")
                     }
-                    if !round.isComplete {
+                    ToolbarItem(placement: .secondaryAction) {
+                        Button {
+                            quickEntryMode.toggle()
+                        } label: {
+                            Image(systemName: quickEntryMode ? "bolt.fill" : "bolt")
+                                .foregroundStyle(quickEntryMode ? Theme.primary : Theme.textSecondary)
+                        }
+                        .accessibilityLabel(quickEntryMode ? "Switch to standard entry" : "Switch to quick entry")
+                    }
+                    if !round.isComplete && !quickEntryMode {
                         ToolbarItem(placement: .primaryAction) {
                             Button {
                                 if viewModel.currentHole >= viewModel.holeCount {
@@ -74,7 +97,31 @@ struct ScorecardView: View {
                     } label: {
                         RoundRowView(round: round, courseName: courseName)
                     }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            roundToDelete = round
+                            showingDeleteConfirmation = true
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
                 }
+            }
+        }
+        .themedList()
+        .alert("Delete Round?", isPresented: $showingDeleteConfirmation) {
+            Button("Cancel", role: .cancel) {
+                roundToDelete = nil
+            }
+            Button("Delete", role: .destructive) {
+                if let round = roundToDelete {
+                    viewModel.deleteRound(round.id)
+                    roundToDelete = nil
+                }
+            }
+        } message: {
+            if let round = roundToDelete {
+                Text("This will permanently delete the round at \(round.course?.name ?? "this course") and all its scores.")
             }
         }
     }

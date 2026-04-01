@@ -113,6 +113,7 @@ struct TripListView: View {
                 }
             }
         }
+        .themedList()
         .alert("Are you sure?", isPresented: $showingDeleteConfirmation) {
             Button("Cancel", role: .cancel) {
                 tripToDelete = nil

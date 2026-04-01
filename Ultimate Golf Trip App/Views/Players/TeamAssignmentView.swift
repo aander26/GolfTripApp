@@ -39,6 +39,7 @@ struct TeamAssignmentView: View {
                 }
             }
         }
+        .themedList()
         .navigationTitle("Assign Teams")
     }
 

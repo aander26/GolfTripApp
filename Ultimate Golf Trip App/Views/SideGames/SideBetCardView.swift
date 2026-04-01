@@ -6,6 +6,7 @@ struct SideBetCardView: View {
     @State private var showingWinnerPicker = false
     @State private var showingDeleteConfirmation = false
     @State private var showingCompleteConfirmation = false
+    @State private var showingEditBet = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -214,6 +215,12 @@ struct SideBetCardView: View {
                 if bet.isActive {
                     Menu {
                         Button {
+                            viewModel.startEditingBet(bet)
+                            showingEditBet = true
+                        } label: {
+                            Label("Edit Challenge", systemImage: "pencil")
+                        }
+                        Button {
                             showingWinnerPicker = true
                         } label: {
                             Label("Declare Winner", systemImage: "trophy")
@@ -249,6 +256,34 @@ struct SideBetCardView: View {
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("Are you sure you want to delete \"\(bet.name)\"? This cannot be undone.")
+        }
+        .sheet(isPresented: $showingEditBet) {
+            NavigationStack {
+                Form {
+                    Section("Challenge Details") {
+                        TextField("Name", text: $viewModel.editBetName)
+                        TextField("Stake (e.g. Bragging Rights, $20)", text: $viewModel.editBetStake)
+                    }
+                }
+                .navigationTitle("Edit Challenge")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") {
+                            showingEditBet = false
+                            viewModel.showingEditBet = false
+                        }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Save") {
+                            viewModel.saveBetEdits()
+                            showingEditBet = false
+                        }
+                        .disabled(viewModel.editBetName.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .fontWeight(.semibold)
+                    }
+                }
+            }
         }
         .alert("Complete Challenge", isPresented: $showingCompleteConfirmation) {
             if currentLeaderId != nil {

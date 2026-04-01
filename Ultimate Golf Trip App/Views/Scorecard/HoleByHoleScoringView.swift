@@ -283,6 +283,7 @@ struct PlayerScoreCard: View {
                             Image(systemName: "minus.circle.fill")
                                 .font(.title2)
                                 .foregroundStyle(.secondary)
+                                .frame(minWidth: 44, minHeight: 44)
                         }
                         .accessibilityLabel("Decrease strokes")
                         .accessibilityHint("Current strokes: \(strokes)")
@@ -299,6 +300,7 @@ struct PlayerScoreCard: View {
                             Image(systemName: "plus.circle.fill")
                                 .font(.title2)
                                 .foregroundStyle(Theme.primary)
+                                .frame(minWidth: 44, minHeight: 44)
                         }
                         .accessibilityLabel("Increase strokes")
                         .accessibilityHint("Current strokes: \(strokes)")
@@ -330,6 +332,7 @@ struct PlayerScoreCard: View {
                             Image(systemName: "minus.circle.fill")
                                 .font(.title2)
                                 .foregroundStyle(.secondary)
+                                .frame(minWidth: 44, minHeight: 44)
                         }
                         .accessibilityLabel("Decrease putts")
                         .accessibilityHint("Current putts: \(putts)")
@@ -350,6 +353,7 @@ struct PlayerScoreCard: View {
                             Image(systemName: "plus.circle.fill")
                                 .font(.title2)
                                 .foregroundStyle(strokes > 0 && putts >= strokes ? .secondary : Theme.primary)
+                                .frame(minWidth: 44, minHeight: 44)
                         }
                         .disabled(strokes > 0 && putts >= strokes)
                         .accessibilityLabel("Increase putts")

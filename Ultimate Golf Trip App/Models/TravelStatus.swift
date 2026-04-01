@@ -3,10 +3,10 @@ import SwiftData
 
 @Model
 final class TravelStatus {
-    var id: UUID
-    var statusRaw: String
-    var updatedAt: Date
-    var flightInfo: String
+    var id: UUID = UUID()
+    var statusRaw: String = "notDeparted"
+    var updatedAt: Date = Date()
+    var flightInfo: String = ""
     var eta: Date?
 
     // Relationships

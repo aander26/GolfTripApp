@@ -13,23 +13,45 @@ struct Ultimate_Golf_Trip_AppApp: App {
     /// (not via SwiftData's built-in NSPersistentCloudKitContainer, which requires all
     /// attributes to be optional and all relationships to have inverses).
     let modelContainer: ModelContainer = {
-        let config = ModelConfiguration(cloudKitDatabase: .none)
+        let schema = Schema([Trip.self, UserProfile.self])
+        let config = ModelConfiguration(schema: schema, cloudKitDatabase: .none)
+
+        // First attempt: open the existing store (handles lightweight migrations automatically)
         do {
-            return try ModelContainer(for: Trip.self, UserProfile.self, configurations: config)
+            return try ModelContainer(for: schema, configurations: config)
         } catch {
-            // If the schema migration fails, wipe the store and retry so the app
-            // can at least launch instead of crashing. Data will re-sync from CloudKit.
+            print("⚠️ ModelContainer failed on first attempt: \(error)")
+            print("⚠️ Attempting store reset — data will re-sync from CloudKit.")
+
+            // Back up the old store before deleting so data isn't irrecoverably lost
             let storeURL = config.url
+            let backupURL = storeURL.deletingLastPathComponent()
+                .appendingPathComponent("default-backup-\(Int(Date().timeIntervalSince1970)).store")
+            try? FileManager.default.copyItem(at: storeURL, to: backupURL)
+
+            // Remove the store and its sidecar files
             try? FileManager.default.removeItem(at: storeURL)
-            // Also remove the WAL/SHM sidecar files if present
-            let walURL = storeURL.appendingPathExtension("wal")
-            let shmURL = storeURL.appendingPathExtension("shm")
-            try? FileManager.default.removeItem(at: walURL)
-            try? FileManager.default.removeItem(at: shmURL)
+            try? FileManager.default.removeItem(at: storeURL.appendingPathExtension("wal"))
+            try? FileManager.default.removeItem(at: storeURL.appendingPathExtension("shm"))
+
+            // Second attempt with a fresh store
             do {
-                return try ModelContainer(for: Trip.self, UserProfile.self, configurations: config)
+                return try ModelContainer(for: schema, configurations: config)
             } catch {
-                fatalError("Could not create ModelContainer even after resetting store: \(error)")
+                // Last resort: try an in-memory store so the app can at least launch
+                // and re-sync from CloudKit rather than crashing in a loop
+                print("🔴 ModelContainer still failed after reset: \(error)")
+                print("🔴 Falling back to in-memory store. Data will re-sync from CloudKit.")
+                let inMemoryConfig = ModelConfiguration(
+                    schema: schema,
+                    isStoredInMemoryOnly: true,
+                    cloudKitDatabase: .none
+                )
+                do {
+                    return try ModelContainer(for: schema, configurations: inMemoryConfig)
+                } catch {
+                    fatalError("Could not create ModelContainer even in-memory: \(error)")
+                }
             }
         }
     }()
@@ -38,7 +60,6 @@ struct Ultimate_Golf_Trip_AppApp: App {
         WindowGroup {
             AppBootstrapView()
                 .environment(appState)
-                .preferredColorScheme(.light)
                 .onAppear {
                     // Share appState with the delegate so it can trigger pulls
                     appDelegate.appState = appState
@@ -116,9 +137,26 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 struct AppBootstrapView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.modelContext) private var modelContext
+    @State private var showMigrationError = false
 
     var body: some View {
         ContentView()
+            .alert("Data Migration Issue", isPresented: $showMigrationError) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("Some trip data from a previous version couldn't be imported. Your new data is safe, but older trips may need to be re-synced from iCloud.")
+            }
+            .onReceive(NotificationCenter.default.publisher(for: Notification.Name("MigrationFailed"))) { _ in
+                showMigrationError = true
+            }
+            .alert("Error", isPresented: Binding(
+                get: { appState.errorMessage != nil },
+                set: { if !$0 { appState.errorMessage = nil } }
+            )) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(appState.errorMessage ?? "")
+            }
             .onAppear {
                 #if DEBUG
                 if ProcessInfo.processInfo.arguments.contains("-screenshots") {

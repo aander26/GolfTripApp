@@ -41,6 +41,12 @@ class TripViewModel {
     var showingEditTeam = false
     var editingTeam: Team?
 
+    // Trip editing
+    var showingEditTrip = false
+    var editTripName: String = ""
+    var editTripStartDate: Date = Date()
+    var editTripEndDate: Date = Date()
+
     // Player editing
     var showingEditPlayer = false
     var editingPlayer: Player?
@@ -119,11 +125,22 @@ class TripViewModel {
         trip.removePlayer(id: playerId)
 
         // Push the updated trip (with player removed) BEFORE deleting locally,
-        // then unsubscribe and clean up. This prevents the race condition where
-        // local deletion happens before the push completes.
+        // then unsubscribe and clean up. Each step waits for the previous to finish
+        // so we don't delete local data before the cloud push succeeds.
         Task {
+            // Step 1: Push updated trip to cloud. If this fails, we still proceed
+            // with local cleanup — the player removal will sync on next launch.
             await appState.saveTripToCloud(trip)
-            try? await CloudKitService.shared.unsubscribeFromTripChanges(tripId: tripId)
+
+            // Step 2: Unsubscribe from push notifications for this trip
+            do {
+                try await CloudKitService.shared.unsubscribeFromTripChanges(tripId: tripId)
+            } catch {
+                // Non-fatal: subscription cleanup is best-effort
+                print("⚠️ Failed to unsubscribe from trip \(tripId): \(error.localizedDescription)")
+            }
+
+            // Step 3: Delete locally only after cloud operations complete
             await MainActor.run {
                 appState.deleteTrip(id: tripId)
             }
@@ -180,6 +197,35 @@ class TripViewModel {
         await appState.subscribeToTrip(trip)
     }
 
+    // MARK: - Trip Editing
+
+    func startEditingTrip() {
+        guard let trip = currentTrip else { return }
+        editTripName = trip.name
+        editTripStartDate = trip.startDate
+        editTripEndDate = trip.endDate
+        showingEditTrip = true
+    }
+
+    func saveTripEdits() {
+        guard let trip = currentTrip else { return }
+        let trimmedName = editTripName.trimmingCharacters(in: .whitespaces)
+        guard !trimmedName.isEmpty else { return }
+
+        trip.name = trimmedName
+        trip.startDate = editTripStartDate
+        trip.endDate = editTripEndDate
+        appState.saveContext()
+        resetEditTripForm()
+    }
+
+    private func resetEditTripForm() {
+        editTripName = ""
+        editTripStartDate = Date()
+        editTripEndDate = Date()
+        showingEditTrip = false
+    }
+
     // MARK: - Player Management
 
     func addPlayer() {
@@ -189,7 +235,7 @@ class TripViewModel {
         let normalizedName = trimmedName.lowercased()
         guard !trip.players.contains(where: { $0.name.trimmingCharacters(in: .whitespaces).lowercased() == normalizedName }) else { return }
         newPlayerName = trimmedName
-        let handicap = Double(newPlayerHandicap) ?? 0.0
+        let handicap = min(54.0, max(-10.0, Double(newPlayerHandicap) ?? 0.0))
 
         // Find team object if teamId is set
         let team = newPlayerTeamId.flatMap { teamId in
@@ -239,7 +285,7 @@ class TripViewModel {
     func savePlayerEdits() {
         guard let player = editingPlayer else { return }
         player.name = editPlayerName.trimmingCharacters(in: .whitespaces)
-        player.handicapIndex = Double(editPlayerHandicap) ?? 0.0
+        player.handicapIndex = min(54.0, max(-10.0, Double(editPlayerHandicap) ?? 0.0))
         player.avatarColor = editPlayerColor
 
         // Update team assignment

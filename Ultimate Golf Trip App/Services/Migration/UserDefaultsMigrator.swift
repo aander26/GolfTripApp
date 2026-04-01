@@ -14,6 +14,8 @@ enum UserDefaultsMigrator {
 
     private static let migrationKey = "swiftdata_migration_complete"
     private static let legacyTripsKey = "savedTrips"
+    private static let migrationAttemptCountKey = "swiftdata_migration_attempts"
+    private static let maxMigrationAttempts = 3
 
     /// Returns `true` if the migration has already been performed.
     static var isMigrated: Bool {
@@ -44,14 +46,34 @@ enum UserDefaultsMigrator {
             // Only mark complete and clean up legacy data after successful save
             UserDefaults.standard.set(true, forKey: migrationKey)
             UserDefaults.standard.removeObject(forKey: legacyTripsKey)
+            UserDefaults.standard.removeObject(forKey: migrationAttemptCountKey)
+            logger.info("Migration completed successfully for \(legacyTrips.count) trips")
         } catch {
             // Save failed — do NOT mark migration complete or delete legacy data.
-            // Migration will retry on next launch.
-            logger.error("Migration save failed: \(error.localizedDescription)")
+            // Track attempt count so we can surface an error after repeated failures.
+            let attempts = UserDefaults.standard.integer(forKey: migrationAttemptCountKey) + 1
+            UserDefaults.standard.set(attempts, forKey: migrationAttemptCountKey)
+
+            if attempts >= maxMigrationAttempts {
+                logger.error("Migration failed \(attempts) times — giving up. Error: \(error.localizedDescription)")
+                // Mark as migrated to stop retrying, but post a notification so AppState can show an error
+                UserDefaults.standard.set(true, forKey: migrationKey)
+                NotificationCenter.default.post(
+                    name: Notification.Name("MigrationFailed"),
+                    object: nil,
+                    userInfo: ["error": error.localizedDescription]
+                )
+            } else {
+                logger.error("Migration save failed (attempt \(attempts)/\(maxMigrationAttempts)): \(error.localizedDescription)")
+            }
         }
     }
 
     // MARK: - Conversion Helpers
+
+    /// Current schema version for newly migrated trips.
+    /// Must match the latest Trip.schemaVersion default.
+    private static let currentSchemaVersion = 2
 
     private static func convertTrip(_ legacy: LegacyModels.Trip) -> Trip {
         let trip = Trip(
@@ -62,6 +84,9 @@ enum UserDefaultsMigrator {
             shareCode: legacy.shareCode,
             createdAt: legacy.createdAt
         )
+        // Explicitly set schema version so migrated trips are recognized as up-to-date.
+        // Without this, future schema checks might re-migrate or mishandle these trips.
+        trip.schemaVersion = currentSchemaVersion
 
         // Players
         let players = legacy.players.map { convertPlayer($0) }

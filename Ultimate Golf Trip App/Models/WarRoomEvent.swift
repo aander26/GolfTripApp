@@ -3,17 +3,17 @@ import SwiftData
 
 @Model
 final class WarRoomEvent {
-    var id: UUID
-    var typeRaw: String
-    var title: String
-    var subtitle: String
-    var dateTime: Date
+    var id: UUID = UUID()
+    var typeRaw: String = "custom"
+    var title: String = ""
+    var subtitle: String = ""
+    var dateTime: Date = Date()
     var endDateTime: Date?
-    var location: String
-    var notes: String
-    var playerIds: [UUID]
+    var location: String = ""
+    var notes: String = ""
+    var playerIds: [UUID] = []
     var createdBy: UUID?
-    var createdAt: Date
+    var createdAt: Date = Date()
 
     // Relationships
     @Relationship(inverse: \Trip.warRoomEvents)

@@ -22,6 +22,10 @@ struct JoinTripView: View {
                                 shareCode = filtered
                             }
                         }
+
+                    Text("6-character code (letters and numbers)")
+                        .font(.caption)
+                        .foregroundStyle(Theme.textSecondary)
                 }
 
                 Section {
@@ -56,6 +60,12 @@ struct JoinTripView: View {
                         }
                         .disabled(shareCode.count != 6)
                         .fontWeight(.semibold)
+                    }
+                }
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") {
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                     }
                 }
             }

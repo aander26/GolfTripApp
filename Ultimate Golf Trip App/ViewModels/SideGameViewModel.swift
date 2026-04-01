@@ -32,7 +32,7 @@ class SideGameViewModel {
         guard let trip = currentTrip else { return }
         guard selectedParticipantIds.count >= 2 else { return }
 
-        let stakes = Double(stakesAmount) ?? 0
+        let stakes = max(0, Double(stakesAmount) ?? 0)
         let round = selectedRoundId.flatMap { roundId in
             trip.rounds.first { $0.id == roundId }
         }

@@ -93,6 +93,7 @@ struct SettlementView: View {
                     }
                 }
             }
+            .themedList()
         }
     }
 
