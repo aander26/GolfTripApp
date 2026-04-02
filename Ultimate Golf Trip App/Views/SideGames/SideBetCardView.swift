@@ -17,6 +17,17 @@ struct SideBetCardView: View {
                 Text(bet.name)
                     .font(.headline)
 
+                if bet.isTripWide {
+                    Text("TRIP")
+                        .font(.caption2)
+                        .fontWeight(.bold)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.blue)
+                        .foregroundStyle(.white)
+                        .clipShape(Capsule())
+                }
+
                 if bet.isPotBet {
                     Text("POOL")
                         .font(.caption2)
@@ -47,9 +58,24 @@ struct SideBetCardView: View {
                 }
             }
 
-            // Info line: round details
+            // Info line: round details or trip-wide progress
             HStack(spacing: 4) {
-                if let roundName = bet.roundDisplayName {
+                if bet.isTripWide, let trip = bet.trip {
+                    let completedCount = trip.completedRounds.count
+                    let totalCount = trip.rounds.count
+                    Image(systemName: "repeat")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                    Text("Trip-Wide · \(completedCount)/\(totalCount) rounds scored")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if totalCount > 0 && completedCount >= totalCount {
+                        Text("Ready to settle")
+                            .font(.caption2)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(Theme.primary)
+                    }
+                } else if let roundName = bet.roundDisplayName {
                     Image(systemName: "flag.fill")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -353,95 +379,118 @@ struct CustomValueEntryView: View {
     @State private var editValue: String = ""
     @FocusState private var isFieldFocused: Bool
 
+    @State private var entryNote: String = ""
+
+    private var isAdditive: Bool { bet.isTripWide }
+
     var body: some View {
         VStack(spacing: 8) {
             HStack {
                 let metricName = bet.customMetricName.isEmpty ? "Values" : bet.customMetricName
-                Text("Enter \(metricName)")
+                Text(isAdditive ? "Add \(metricName)" : "Enter \(metricName)")
                     .font(.caption.bold())
                     .foregroundStyle(.secondary)
                 Spacer()
+                if isAdditive {
+                    Text("Running totals")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
             }
 
             ForEach(viewModel.betParticipants(for: bet)) { player in
-                HStack(spacing: 12) {
-                    Circle()
-                        .fill(player.avatarColor.color)
-                        .frame(width: 26, height: 26)
-                        .overlay {
-                            Text(player.initials)
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(.white)
-                        }
-
-                    Text(player.name.split(separator: " ").first.map(String.init) ?? player.name)
-                        .font(.subheadline)
-                        .frame(minWidth: 60, alignment: .leading)
-
-                    Spacer()
-
-                    if editingPlayerId == player.id {
-                        HStack(spacing: 8) {
-                            TextField("0", text: $editValue)
-                                .keyboardType(.decimalPad)
-                                .font(.body.bold())
-                                .multilineTextAlignment(.center)
-                                .frame(width: 80)
-                                .padding(.vertical, 8)
-                                .padding(.horizontal, 12)
-                                .background(Theme.background)
-                                .clipShape(RoundedRectangle(cornerRadius: 8))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 8)
-                                        .stroke(Theme.primary, lineWidth: 2)
-                                )
-                                .focused($isFieldFocused)
-                                .onSubmit { saveValue(for: player.id) }
-
-                            Button {
-                                saveValue(for: player.id)
-                            } label: {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(Theme.primary)
-                                    .font(.title3)
+                VStack(spacing: 4) {
+                    HStack(spacing: 12) {
+                        Circle()
+                            .fill(player.avatarColor.color)
+                            .frame(width: 26, height: 26)
+                            .overlay {
+                                Text(player.initials)
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(.white)
                             }
-                            .accessibilityLabel("Save value for \(player.name)")
-                        }
-                    } else {
-                        Button {
-                            editingPlayerId = player.id
-                            if let existing = bet.customValues[player.id] {
-                                editValue = existing.formatted()
-                            } else {
-                                editValue = ""
-                            }
-                            isFieldFocused = true
-                        } label: {
-                            if let value = bet.customValues[player.id] {
-                                Text(value.formatted())
+
+                        Text(player.name.split(separator: " ").first.map(String.init) ?? player.name)
+                            .font(.subheadline)
+                            .frame(minWidth: 60, alignment: .leading)
+
+                        Spacer()
+
+                        if editingPlayerId == player.id {
+                            HStack(spacing: 8) {
+                                if isAdditive {
+                                    Text("+")
+                                        .font(.body.bold())
+                                        .foregroundStyle(Theme.primary)
+                                }
+                                TextField("0", text: $editValue)
+                                    .keyboardType(.decimalPad)
                                     .font(.body.bold())
-                                    .foregroundStyle(Theme.primary)
-                                    .frame(minWidth: 50)
+                                    .multilineTextAlignment(.center)
+                                    .frame(width: 80)
                                     .padding(.vertical, 8)
-                                    .padding(.horizontal, 16)
-                                    .background(Theme.primaryLight)
-                                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                            } else {
-                                Text("Tap")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                                    .frame(minWidth: 50)
-                                    .padding(.vertical, 8)
-                                    .padding(.horizontal, 16)
+                                    .padding(.horizontal, 12)
                                     .background(Theme.background)
                                     .clipShape(RoundedRectangle(cornerRadius: 8))
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 8)
-                                            .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                                            .stroke(Theme.primary, lineWidth: 2)
                                     )
+                                    .focused($isFieldFocused)
+                                    .onSubmit { saveValue(for: player.id) }
+
+                                Button {
+                                    saveValue(for: player.id)
+                                } label: {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundStyle(Theme.primary)
+                                        .font(.title3)
+                                }
+                                .accessibilityLabel("Save value for \(player.name)")
                             }
+                        } else {
+                            Button {
+                                editingPlayerId = player.id
+                                editValue = isAdditive ? "" : (bet.customValues[player.id]?.formatted() ?? "")
+                                isFieldFocused = true
+                            } label: {
+                                if let value = bet.customValues[player.id] {
+                                    Text(value.formatted())
+                                        .font(.body.bold())
+                                        .foregroundStyle(Theme.primary)
+                                        .frame(minWidth: 50)
+                                        .padding(.vertical, 8)
+                                        .padding(.horizontal, 16)
+                                        .background(Theme.primaryLight)
+                                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                                } else {
+                                    Text(isAdditive ? "+" : "Tap")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                        .frame(minWidth: 50)
+                                        .padding(.vertical, 8)
+                                        .padding(.horizontal, 16)
+                                        .background(Theme.background)
+                                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 8)
+                                                .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
+                                        )
+                                }
+                            }
+                            .accessibilityLabel(isAdditive ? "Add entry for \(player.name)" : "Edit value for \(player.name)")
                         }
-                        .accessibilityLabel("Edit value for \(player.name)")
+                    }
+
+                    // Show entry count for trip-wide cumulative
+                    if isAdditive {
+                        let entries = bet.entriesForPlayer(player.id)
+                        if !entries.isEmpty {
+                            Text("\(entries.count) entr\(entries.count == 1 ? "y" : "ies")")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                        }
                     }
                 }
                 .padding(.vertical, 2)
@@ -450,11 +499,16 @@ struct CustomValueEntryView: View {
     }
 
     private func saveValue(for playerId: UUID) {
-        if let value = Double(editValue) {
-            viewModel.updateCustomValue(betId: bet.id, playerId: playerId, value: value)
+        if let value = Double(editValue), value != 0 {
+            if isAdditive {
+                viewModel.addCustomEntry(betId: bet.id, playerId: playerId, value: value, note: entryNote.isEmpty ? nil : entryNote)
+            } else {
+                viewModel.updateCustomValue(betId: bet.id, playerId: playerId, value: value)
+            }
         }
         editingPlayerId = nil
         editValue = ""
+        entryNote = ""
         isFieldFocused = false
     }
 }

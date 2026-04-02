@@ -107,6 +107,16 @@ enum ChallengeType: String, Codable, CaseIterable, Identifiable {
         self == .custom
     }
 
+    /// Whether this challenge can span the entire trip (cumulative across rounds).
+    var supportsTripWide: Bool {
+        switch self {
+        case .lowRound, .mostBirdies, .fewestPutts, .fewest3Putts, .most3Putts, .custom:
+            return true
+        default:
+            return false
+        }
+    }
+
     /// Whether highest value wins (true) or lowest wins (false) for auto-settle.
     var highestWins: Bool {
         switch self {

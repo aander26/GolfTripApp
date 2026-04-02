@@ -17,7 +17,7 @@ struct CreateSideBetView: View {
     private var canSave: Bool {
         guard !viewModel.newBetName.isEmpty,
               viewModel.newBetParticipants.count >= 2 else { return false }
-        if viewModel.newBetType.isRoundBased {
+        if viewModel.newBetType.isRoundBased && !viewModel.newBetIsTripWide {
             guard viewModel.newBetRoundId != nil else { return false }
         }
         if viewModel.newBetType.requiresTwoPlayers {
@@ -97,8 +97,33 @@ struct CreateSideBetView: View {
                     TextField("e.g. Low Round Day 1", text: $viewModel.newBetName)
                 }
 
-                // MARK: - Round Selection (round-based only)
-                if viewModel.newBetType.isRoundBased {
+                // MARK: - Scope Selection (Single Round vs Trip-Wide)
+                if viewModel.newBetType.supportsTripWide && (viewModel.newBetType.isRoundBased || viewModel.newBetType.isCustom) {
+                    Section {
+                        Picker("Scope", selection: $viewModel.newBetIsTripWide) {
+                            Text("Single Round").tag(false)
+                            Text("Entire Trip").tag(true)
+                        }
+                        .pickerStyle(.segmented)
+
+                        if viewModel.newBetIsTripWide {
+                            HStack(spacing: 6) {
+                                Image(systemName: "repeat")
+                                    .foregroundStyle(Theme.primary)
+                                Text(viewModel.newBetType.isCustom
+                                     ? "Entries accumulate over the trip"
+                                     : "Aggregates scorecard data across all trip rounds")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    } header: {
+                        Text("Scope")
+                    }
+                }
+
+                // MARK: - Round Selection (single-round scorecard challenges only)
+                if viewModel.newBetType.isRoundBased && !viewModel.newBetIsTripWide {
                     Section("Round") {
                         if let trip = viewModel.currentTrip, !trip.rounds.isEmpty {
                             Picker("Round", selection: $viewModel.newBetRoundId) {

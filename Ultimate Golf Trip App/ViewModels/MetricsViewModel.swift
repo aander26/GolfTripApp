@@ -29,6 +29,7 @@ class ChallengesViewModel {
     var newBetRequiresPutts: Bool = false
     var newBetCustomMetricName: String = ""
     var newBetCustomHighestWins: Bool = true
+    var newBetIsTripWide: Bool = false
 
     init(appState: AppState) {
         self.appState = appState
@@ -62,8 +63,8 @@ class ChallengesViewModel {
         guard validParticipants.count >= 2 else { return }
         newBetParticipants = validParticipants
 
-        // Round-based challenges require a round
-        if newBetType.isRoundBased {
+        // Round-based challenges require a round UNLESS trip-wide
+        if newBetType.isRoundBased && !newBetIsTripWide {
             guard newBetRoundId != nil else { return }
         }
 
@@ -81,9 +82,10 @@ class ChallengesViewModel {
             stake: stakeText,
             isPotBet: newBetIsPot,
             potAmount: potAmountValue,
-            round: round,
+            round: newBetIsTripWide ? nil : round,
             useNetScoring: newBetUseNetScoring,
-            requiresPuttsData: newBetRequiresPutts
+            requiresPuttsData: newBetRequiresPutts,
+            isTripWide: newBetIsTripWide
         )
 
         // Set custom challenge fields
@@ -160,6 +162,14 @@ class ChallengesViewModel {
         appState.saveContext()
     }
 
+    /// Add a cumulative entry for a trip-wide custom challenge.
+    func addCustomEntry(betId: UUID, playerId: UUID, value: Double, note: String? = nil) {
+        guard let trip = currentTrip,
+              let bet = trip.sideBet(withId: betId) else { return }
+        bet.addCustomEntry(for: playerId, value: value, note: note)
+        appState.saveContext()
+    }
+
     // MARK: - Winner Determination
 
     private func determineWinner(for bet: SideBet) -> UUID? {
@@ -178,8 +188,47 @@ class ChallengesViewModel {
     }
 
     private func determineRoundBasedWinner(for bet: SideBet) -> UUID? {
+        if bet.isTripWide {
+            guard let trip = bet.trip else { return nil }
+            return Self.determineTripWideWinner(for: bet, rounds: trip.rounds)
+        }
         guard let round = bet.round else { return nil }
         return Self.determineRoundBasedWinner(for: bet, round: round)
+    }
+
+    /// Determine winner for a trip-wide scorecard challenge by aggregating across all rounds.
+    static func determineTripWideWinner(for bet: SideBet, rounds: [Round]) -> UUID? {
+        let playerMetrics: [(UUID, Int)] = bet.participants.compactMap { playerId in
+            let total = aggregateMetricAcrossRounds(playerId: playerId, bet: bet, rounds: rounds)
+            guard let value = total, value > 0 || bet.challengeType == .fewest3Putts || bet.challengeType == .most3Putts else { return nil }
+            return (playerId, value)
+        }
+
+        guard !playerMetrics.isEmpty else { return nil }
+
+        let best: (UUID, Int)?
+        if bet.challengeType.highestWins {
+            best = playerMetrics.max(by: { $0.1 < $1.1 })
+        } else {
+            best = playerMetrics.min(by: { $0.1 < $1.1 })
+        }
+
+        guard let winner = best else { return nil }
+        let tiedCount = playerMetrics.filter { $0.1 == winner.1 }.count
+        return tiedCount == 1 ? winner.0 : nil
+    }
+
+    /// Aggregate a metric across all rounds for a player.
+    static func aggregateMetricAcrossRounds(playerId: UUID, bet: SideBet, rounds: [Round]) -> Int? {
+        var total = 0
+        var hasData = false
+        for round in rounds {
+            if let value = metricForPlayer(playerId, bet: bet, round: round) {
+                total += value
+                hasData = true
+            }
+        }
+        return hasData ? total : nil
     }
 
     /// Static helper so other view models (e.g. ScorecardViewModel) can auto-settle.
@@ -290,19 +339,35 @@ class ChallengesViewModel {
     }
 
     private func roundBasedStandings(for bet: SideBet, trip: Trip) -> [PlayerStanding] {
-        guard let round = bet.round else { return [] }
         let metricName = Self.metricLabel(for: bet.challengeType)
 
-        let standings: [PlayerStanding] = bet.participants.compactMap { playerId in
-            guard let player = trip.player(withId: playerId),
-                  let value = Self.metricForPlayer(playerId, bet: bet, round: round) else { return nil }
-            return PlayerStanding(
-                playerId: playerId,
-                playerName: player.name,
-                value: Double(value),
-                label: "\(value) \(metricName)",
-                isLeader: false
-            )
+        let standings: [PlayerStanding]
+        if bet.isTripWide {
+            // Aggregate across all trip rounds
+            standings = bet.participants.compactMap { playerId in
+                guard let player = trip.player(withId: playerId),
+                      let value = Self.aggregateMetricAcrossRounds(playerId: playerId, bet: bet, rounds: trip.rounds) else { return nil }
+                return PlayerStanding(
+                    playerId: playerId,
+                    playerName: player.name,
+                    value: Double(value),
+                    label: "\(value) \(metricName)",
+                    isLeader: false
+                )
+            }
+        } else {
+            guard let round = bet.round else { return [] }
+            standings = bet.participants.compactMap { playerId in
+                guard let player = trip.player(withId: playerId),
+                      let value = Self.metricForPlayer(playerId, bet: bet, round: round) else { return nil }
+                return PlayerStanding(
+                    playerId: playerId,
+                    playerName: player.name,
+                    value: Double(value),
+                    label: "\(value) \(metricName)",
+                    isLeader: false
+                )
+            }
         }
 
         let sorted: [PlayerStanding]
@@ -374,6 +439,7 @@ class ChallengesViewModel {
         newBetType = template.betType
         newBetUseNetScoring = template.useNetScoring
         newBetRequiresPutts = template.requiresPutts
+        newBetIsTripWide = template.isTripWide
 
         // Select all players by default
         if let trip = currentTrip {
@@ -407,6 +473,7 @@ class ChallengesViewModel {
         newBetRequiresPutts = false
         newBetCustomMetricName = ""
         newBetCustomHighestWins = true
+        newBetIsTripWide = false
         showingCreateBet = false
     }
 }
@@ -414,6 +481,7 @@ class ChallengesViewModel {
 // MARK: - Challenge Templates
 
 enum ChallengeTemplate: String, CaseIterable, Identifiable {
+    // Single-round templates
     case lowRoundGross = "lowRoundGross"
     case lowRoundNet = "lowRoundNet"
     case headToHead = "headToHead"
@@ -422,6 +490,10 @@ enum ChallengeTemplate: String, CaseIterable, Identifiable {
     case fewestPutts = "fewestPutts"
     case fewest3Putts = "fewest3Putts"
     case most3Putts = "most3Putts"
+    // Trip-wide templates
+    case mostBirdiesTrip = "mostBirdiesTrip"
+    case fewestPuttsTrip = "fewestPuttsTrip"
+    case lowTotalTrip = "lowTotalTrip"
 
     var id: String { rawValue }
 
@@ -435,6 +507,9 @@ enum ChallengeTemplate: String, CaseIterable, Identifiable {
         case .fewestPutts: return "Fewest Putts"
         case .fewest3Putts: return "Fewest 3-Putts"
         case .most3Putts: return "Most 3-Putts"
+        case .mostBirdiesTrip: return "Most Birdies (Trip)"
+        case .fewestPuttsTrip: return "Fewest Putts (Trip)"
+        case .lowTotalTrip: return "Low Total (Trip)"
         }
     }
 
@@ -442,18 +517,19 @@ enum ChallengeTemplate: String, CaseIterable, Identifiable {
         switch self {
         case .lowRoundGross, .lowRoundNet: return "medal.fill"
         case .headToHead: return "person.2.fill"
-        case .mostBirdiesGross, .mostBirdiesNet: return "bird.fill"
-        case .fewestPutts, .fewest3Putts: return "flag.fill"
+        case .mostBirdiesGross, .mostBirdiesNet, .mostBirdiesTrip: return "bird.fill"
+        case .fewestPutts, .fewest3Putts, .fewestPuttsTrip: return "flag.fill"
         case .most3Putts: return "hand.thumbsdown.fill"
+        case .lowTotalTrip: return "trophy.fill"
         }
     }
 
     var betType: BetType {
         switch self {
-        case .lowRoundGross, .lowRoundNet: return .lowRound
+        case .lowRoundGross, .lowRoundNet, .lowTotalTrip: return .lowRound
         case .headToHead: return .headToHeadRound
-        case .mostBirdiesGross, .mostBirdiesNet: return .mostBirdies
-        case .fewestPutts: return .fewestPutts
+        case .mostBirdiesGross, .mostBirdiesNet, .mostBirdiesTrip: return .mostBirdies
+        case .fewestPutts, .fewestPuttsTrip: return .fewestPutts
         case .fewest3Putts: return .fewest3Putts
         case .most3Putts: return .most3Putts
         }
@@ -461,13 +537,28 @@ enum ChallengeTemplate: String, CaseIterable, Identifiable {
 
     var useNetScoring: Bool {
         switch self {
-        case .lowRoundNet, .mostBirdiesNet: return true
+        case .lowRoundNet, .mostBirdiesNet, .lowTotalTrip: return true
         default: return false
         }
     }
 
     /// Whether this template requires putts data in the scorecard.
     var requiresPutts: Bool {
-        self == .fewestPutts || self == .fewest3Putts || self == .most3Putts
+        switch self {
+        case .fewestPutts, .fewest3Putts, .most3Putts, .fewestPuttsTrip:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Whether this template creates a trip-wide challenge.
+    var isTripWide: Bool {
+        switch self {
+        case .mostBirdiesTrip, .fewestPuttsTrip, .lowTotalTrip:
+            return true
+        default:
+            return false
+        }
     }
 }

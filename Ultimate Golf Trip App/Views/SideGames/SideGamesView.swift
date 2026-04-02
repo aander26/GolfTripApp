@@ -43,38 +43,64 @@ struct SideGamesView: View {
 
     // MARK: - Quick Create Templates
 
+    private var singleRoundTemplates: [ChallengeTemplate] {
+        ChallengeTemplate.allCases.filter { !$0.isTripWide }
+    }
+
+    private var tripWideTemplates: [ChallengeTemplate] {
+        ChallengeTemplate.allCases.filter { $0.isTripWide }
+    }
+
     private var quickCreateSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Quick Create")
-                .font(.subheadline.bold())
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Single Round")
+                .font(.caption.bold())
                 .foregroundStyle(.secondary)
                 .padding(.horizontal)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
-                    ForEach(ChallengeTemplate.allCases) { template in
-                        Button {
-                            challengesViewModel.applyTemplate(template)
-                        } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: template.icon)
-                                    .font(.caption)
-                                Text(template.displayName)
-                                    .font(.caption)
-                                    .fontWeight(.medium)
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(Theme.primaryLight)
-                            .foregroundStyle(Theme.primary)
-                            .clipShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
+                    ForEach(singleRoundTemplates) { template in
+                        templateButton(template)
+                    }
+                }
+                .padding(.horizontal)
+            }
+
+            Text("Trip-Wide")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+                .padding(.horizontal)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(tripWideTemplates) { template in
+                        templateButton(template, isTripWide: true)
                     }
                 }
                 .padding(.horizontal)
             }
         }
+    }
+
+    private func templateButton(_ template: ChallengeTemplate, isTripWide: Bool = false) -> some View {
+        Button {
+            challengesViewModel.applyTemplate(template)
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: template.icon)
+                    .font(.caption)
+                Text(template.displayName)
+                    .font(.caption)
+                    .fontWeight(.medium)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(isTripWide ? Color.blue.opacity(0.12) : Theme.primaryLight)
+            .foregroundStyle(isTripWide ? .blue : Theme.primary)
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Challenges List

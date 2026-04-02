@@ -411,6 +411,9 @@ struct SettlementEngine {
 
     /// Generate a descriptive name for a challenge including round info when applicable.
     private static func challengeDisplayName(for bet: SideBet) -> String {
+        if bet.isTripWide {
+            return "\(bet.name) (Trip-Wide)"
+        }
         if bet.isRoundBased, let roundName = bet.roundDisplayName {
             return "\(bet.name) — \(roundName)"
         }

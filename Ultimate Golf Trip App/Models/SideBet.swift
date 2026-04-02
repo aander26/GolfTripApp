@@ -34,6 +34,13 @@ final class SideBet {
     /// For custom challenges: manually entered values per participant, stored as JSON.
     var customValuesRaw: String = "{}"
 
+    /// When true, this challenge aggregates across all trip rounds (not scoped to one round).
+    var isTripWide: Bool = false
+
+    /// Append-only log of custom entries for cumulative tracking, stored as JSON array.
+    /// Each entry records who, how much, when, and an optional note.
+    var customEntriesRaw: String = "[]"
+
     // Relationships
     /// The specific round this challenge is scoped to (for round-based challenges).
     var round: Round?
@@ -53,7 +60,8 @@ final class SideBet {
         potAmount: Double = 0,
         round: Round? = nil,
         useNetScoring: Bool = false,
-        requiresPuttsData: Bool = false
+        requiresPuttsData: Bool = false,
+        isTripWide: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -68,6 +76,7 @@ final class SideBet {
         self.round = round
         self.useNetScoring = useNetScoring
         self.requiresPuttsData = requiresPuttsData
+        self.isTripWide = isTripWide
     }
 
     // MARK: - Computed Properties
@@ -165,10 +174,73 @@ final class SideBet {
         }
     }
 
-    /// Update a single participant's custom value.
+    /// Update a single participant's custom value (overwrites — used for single-round custom challenges).
     func updateCustomValue(for playerId: UUID, value: Double) {
         var values = customValues
         values[playerId] = value
         customValues = values
+    }
+
+    // MARK: - Scope Display
+
+    /// Human-readable scope: "Trip-Wide" or the round/course name.
+    var scopeDisplayName: String {
+        if isTripWide { return "Trip-Wide" }
+        return roundDisplayName ?? "Unscoped"
+    }
+
+    // MARK: - Cumulative Custom Entries (Trip-Wide)
+
+    /// A single log entry for cumulative custom tracking.
+    struct CustomEntry: Codable, Identifiable {
+        var id: UUID = UUID()
+        var playerId: String   // UUID string for JSON compatibility
+        var value: Double
+        var timestamp: Date
+        var note: String?
+
+        var playerUUID: UUID? { UUID(uuidString: playerId) }
+    }
+
+    /// Decoded entries log.
+    var customEntries: [CustomEntry] {
+        get {
+            guard let data = customEntriesRaw.data(using: .utf8) else { return [] }
+            return (try? JSONDecoder().decode([CustomEntry].self, from: data)) ?? []
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue),
+               let json = String(data: data, encoding: .utf8) {
+                customEntriesRaw = json
+            }
+        }
+    }
+
+    /// Add a cumulative entry and recompute running totals in customValues.
+    func addCustomEntry(for playerId: UUID, value: Double, note: String? = nil) {
+        var entries = customEntries
+        entries.append(CustomEntry(
+            playerId: playerId.uuidString,
+            value: value,
+            timestamp: Date(),
+            note: note
+        ))
+        customEntries = entries
+
+        // Recompute running totals from all entries
+        var totals: [UUID: Double] = [:]
+        for entry in entries {
+            if let pid = entry.playerUUID {
+                totals[pid, default: 0] += entry.value
+            }
+        }
+        customValues = totals
+    }
+
+    /// Entries for a specific player, sorted by date.
+    func entriesForPlayer(_ playerId: UUID) -> [CustomEntry] {
+        customEntries
+            .filter { $0.playerId == playerId.uuidString }
+            .sorted { $0.timestamp < $1.timestamp }
     }
 }
