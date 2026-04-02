@@ -53,19 +53,34 @@ class ChallengesViewModel {
 
     // MARK: - Challenge CRUD
 
+    /// Error message shown when challenge creation fails validation.
+    var createBetError: String?
+
     func createBet() {
-        guard !newBetName.isEmpty,
-              newBetParticipants.count >= 2,
-              let trip = currentTrip else { return }
+        guard !newBetName.isEmpty else {
+            createBetError = "Please enter a challenge name."
+            return
+        }
+        guard newBetParticipants.count >= 2 else {
+            createBetError = "Select at least 2 participants."
+            return
+        }
+        guard let trip = currentTrip else { return }
 
         // Validate all participants still exist in the trip
         let validParticipants = newBetParticipants.filter { trip.player(withId: $0) != nil }
-        guard validParticipants.count >= 2 else { return }
+        guard validParticipants.count >= 2 else {
+            createBetError = "Not enough valid participants. Some players may have left the trip."
+            return
+        }
         newBetParticipants = validParticipants
 
         // Round-based challenges require a round UNLESS trip-wide
         if newBetType.isRoundBased && !newBetIsTripWide {
-            guard newBetRoundId != nil else { return }
+            guard newBetRoundId != nil else {
+                createBetError = "Please select a round for this challenge."
+                return
+            }
         }
 
         let target = Double(newBetTargetValue)

@@ -446,14 +446,22 @@ struct TeamMatchPlayEngine {
                     return score.strokes - strokes
                 }
 
-                guard let bestA = teamANets.min(), let bestB = teamBNets.min() else { continue }
+                // If neither team has scores, hole hasn't been played yet — skip
+                guard !teamANets.isEmpty || !teamBNets.isEmpty else { continue }
 
                 holesPlayed += 1
 
-                if bestA < bestB {
-                    team1Wins += 1
-                } else if bestB < bestA {
-                    team2Wins += 1
+                // If only one team has scores, that team wins the hole (opponent has no valid score)
+                if let bestA = teamANets.min(), let bestB = teamBNets.min() {
+                    if bestA < bestB {
+                        team1Wins += 1
+                    } else if bestB < bestA {
+                        team2Wins += 1
+                    }
+                } else if teamANets.min() != nil {
+                    team1Wins += 1  // Only team A has scores
+                } else {
+                    team2Wins += 1  // Only team B has scores
                 }
 
                 // Early termination: if margin exceeds remaining holes

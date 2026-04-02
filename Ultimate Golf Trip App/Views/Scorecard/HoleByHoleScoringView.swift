@@ -202,7 +202,9 @@ struct HoleByHoleScoringView: View {
                             Text("\(hole)")
                                 .font(.caption)
                                 .fontWeight(viewModel.currentHole == hole ? .bold : .regular)
-                                .frame(width: 28, height: 28)
+                                .frame(width: 36, height: 36)
+                                .contentShape(Circle())
+                                .frame(minWidth: 44, minHeight: 44)
                                 .background(
                                     Circle()
                                         .fill(viewModel.currentHole == hole ? Theme.primary : Theme.background)
@@ -325,7 +327,7 @@ struct PlayerScoreCard: View {
                         .accessibilityHint("Current strokes: \(strokes)")
 
                         Text("\(strokes)")
-                            .font(.system(size: 36, weight: .bold))
+                            .font(.system(.title, design: .rounded).weight(.bold))
                             .frame(minWidth: 50)
                             .accessibilityLabel("\(strokes) strokes")
 
@@ -374,7 +376,7 @@ struct PlayerScoreCard: View {
                         .accessibilityHint("Current putts: \(putts)")
 
                         Text("\(putts)")
-                            .font(.system(size: 36, weight: .bold))
+                            .font(.system(.title, design: .rounded).weight(.bold))
                             .foregroundStyle(puttsRequired && strokes > 0 && putts == 0 ? Theme.error : Theme.textPrimary)
                             .frame(minWidth: 50)
                             .accessibilityLabel("\(putts) putts")
@@ -388,10 +390,10 @@ struct PlayerScoreCard: View {
                         } label: {
                             Image(systemName: "plus.circle.fill")
                                 .font(.title2)
-                                .foregroundStyle(strokes > 0 && putts >= strokes ? .secondary : Theme.primary)
+                                .foregroundStyle(strokes == 0 || putts >= strokes ? .secondary : Theme.primary)
                                 .frame(minWidth: 44, minHeight: 44)
                         }
-                        .disabled(strokes > 0 && putts >= strokes)
+                        .disabled(strokes == 0 || putts >= strokes)
                         .accessibilityLabel("Increase putts")
                         .accessibilityHint("Current putts: \(putts)")
                     }
@@ -447,7 +449,9 @@ struct RoundCompleteSheet: View {
                             HStack {
                                 Circle()
                                     .fill(player.avatarColor.color)
-                                    .frame(width: 28, height: 28)
+                                    .frame(width: 36, height: 36)
+                                .contentShape(Circle())
+                                .frame(minWidth: 44, minHeight: 44)
                                     .overlay {
                                         Text(player.initials)
                                             .font(.system(size: 10))

@@ -159,8 +159,9 @@ class AppState {
     // MARK: - CloudKit Sync
 
     /// Serializes sync operations to prevent concurrent push/pull races.
-    /// Uses a continuation-based lock since @MainActor prevents true data races,
-    /// but async suspensions can still interleave operations.
+    /// Since AppState is @MainActor, all property access is serialized on the main thread.
+    /// The lock only needs to handle the case where an async suspension (await) allows
+    /// another caller to enter before the first finishes.
     private var isSyncing: Bool = false
     private var syncWaiters: [CheckedContinuation<Void, Never>] = []
 
@@ -170,19 +171,24 @@ class AppState {
             isSyncing = true
             return
         }
-        // Already syncing — wait for current sync to finish
+        // Already syncing — suspend until the current holder releases
         await withCheckedContinuation { continuation in
             syncWaiters.append(continuation)
         }
-        isSyncing = true
+        // When resumed, the lock is already held on our behalf (releaseSyncLock
+        // transfers ownership without clearing isSyncing, preventing interleaving).
     }
 
     /// Release the sync lock and wake the next waiter, if any.
+    /// If a waiter exists, ownership transfers directly (isSyncing stays true).
+    /// If no waiters, the lock is fully released.
     private func releaseSyncLock() {
-        isSyncing = false
         if !syncWaiters.isEmpty {
+            // Transfer lock ownership to next waiter — isSyncing stays true
             let next = syncWaiters.removeFirst()
             next.resume()
+        } else {
+            isSyncing = false
         }
     }
 

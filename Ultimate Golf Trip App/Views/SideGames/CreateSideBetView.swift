@@ -244,6 +244,14 @@ struct CreateSideBetView: View {
             }
             .navigationTitle(viewModel.isFromTemplate ? "Set Up Challenge" : "New Challenge")
             .navigationBarTitleDisplayMode(.inline)
+            .alert("Can't Create Challenge", isPresented: Binding(
+                get: { viewModel.createBetError != nil },
+                set: { if !$0 { viewModel.createBetError = nil } }
+            )) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text(viewModel.createBetError ?? "")
+            }
             .onChange(of: viewModel.newBetUseNetScoring) { _, useNet in
                 // Update name to reflect gross/net when in template mode
                 if viewModel.isFromTemplate && viewModel.newBetType.supportsNetScoring {

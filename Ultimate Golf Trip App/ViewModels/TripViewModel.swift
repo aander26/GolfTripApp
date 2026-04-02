@@ -118,29 +118,40 @@ class TripViewModel {
         appState.deleteTrip(id: trip.id)
     }
 
+    /// Error message shown when leaving a trip fails.
+    var leaveTripError: String?
+
     func leaveTrip(_ trip: Trip) {
         guard let myPlayer = appState.myPlayer(in: trip) else { return }
         let tripId = trip.id
         let playerId = myPlayer.id
         trip.removePlayer(id: playerId)
 
-        // Push the updated trip (with player removed) BEFORE deleting locally,
-        // then unsubscribe and clean up. Each step waits for the previous to finish
-        // so we don't delete local data before the cloud push succeeds.
         Task {
-            // Step 1: Push updated trip to cloud. If this fails, we still proceed
-            // with local cleanup — the player removal will sync on next launch.
+            // Step 1: Push updated trip (player removed) to cloud
             await appState.saveTripToCloud(trip)
 
-            // Step 2: Unsubscribe from push notifications for this trip
+            // Step 2: Check if the push succeeded before deleting locally
+            if appState.lastSyncFailed {
+                // Cloud push failed — re-add the player locally to keep data consistent
+                await MainActor.run {
+                    if let player = Player(id: playerId, name: myPlayer.name, handicapIndex: myPlayer.handicapIndex, avatarColor: myPlayer.avatarColor, userProfileId: myPlayer.userProfileId) as Player? {
+                        trip.addPlayer(player)
+                        appState.saveContext()
+                    }
+                    leaveTripError = appState.lastSyncError ?? "Could not leave trip — check your connection and try again."
+                }
+                return
+            }
+
+            // Step 3: Unsubscribe from push notifications
             do {
                 try await CloudKitService.shared.unsubscribeFromTripChanges(tripId: tripId)
             } catch {
-                // Non-fatal: subscription cleanup is best-effort
                 print("⚠️ Failed to unsubscribe from trip \(tripId): \(error.localizedDescription)")
             }
 
-            // Step 3: Delete locally only after cloud operations complete
+            // Step 4: Delete locally only after cloud push succeeded
             await MainActor.run {
                 appState.deleteTrip(id: tripId)
             }

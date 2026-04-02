@@ -77,6 +77,9 @@ struct LeaderboardView: View {
 
     private var roundLeaderboard: some View {
         VStack {
+            if viewModel.availableRounds.isEmpty {
+                ContentUnavailableView("No Rounds Yet", systemImage: "square.grid.3x3", description: Text("Start a round to see per-round standings."))
+            }
             // Round Picker
             if !viewModel.availableRounds.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {

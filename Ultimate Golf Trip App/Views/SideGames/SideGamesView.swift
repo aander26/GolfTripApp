@@ -101,6 +101,7 @@ struct SideGamesView: View {
             .clipShape(Capsule())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Create \(template.displayName) challenge\(isTripWide ? ", trip-wide" : "")")
     }
 
     // MARK: - Challenges List
