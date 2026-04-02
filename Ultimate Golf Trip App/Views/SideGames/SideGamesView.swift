@@ -69,6 +69,7 @@ struct SideGamesView: View {
                             .foregroundStyle(Theme.primary)
                             .clipShape(Capsule())
                         }
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal)
