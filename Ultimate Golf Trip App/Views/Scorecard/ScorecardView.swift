@@ -5,6 +5,7 @@ struct ScorecardView: View {
     @State private var quickEntryMode = false
     @State private var showingDeleteConfirmation = false
     @State private var roundToDelete: Round?
+    @State private var showingRoundSummary = false
 
     var body: some View {
         NavigationStack {
@@ -13,7 +14,16 @@ struct ScorecardView: View {
                    let trip = viewModel.currentTrip,
                    let course = round.course {
                     let roundPlayers = trip.players.filter { round.playerIds.contains($0.id) }
-                    if quickEntryMode {
+                    if round.isComplete {
+                        // Completed rounds: read-only scorecard
+                        HoleByHoleScoringView(
+                            viewModel: viewModel,
+                            round: round,
+                            course: course,
+                            players: roundPlayers,
+                            isReadOnly: true
+                        )
+                    } else if quickEntryMode {
                         QuickEntryView(
                             viewModel: viewModel,
                             round: round,
@@ -46,28 +56,41 @@ struct ScorecardView: View {
                         }
                         .accessibilityLabel("Back to rounds")
                     }
-                    ToolbarItem(placement: .secondaryAction) {
-                        Button {
-                            quickEntryMode.toggle()
-                        } label: {
-                            Image(systemName: quickEntryMode ? "bolt.fill" : "bolt")
-                                .foregroundStyle(quickEntryMode ? Theme.primary : Theme.textSecondary)
-                        }
-                        .accessibilityLabel(quickEntryMode ? "Switch to standard entry" : "Switch to quick entry")
-                    }
-                    if !round.isComplete && !quickEntryMode {
+                    if round.isComplete {
+                        // Completed round: show Summary button instead of editing controls
                         ToolbarItem(placement: .primaryAction) {
                             Button {
-                                if viewModel.currentHole >= viewModel.holeCount {
-                                    viewModel.showingRoundComplete = true
-                                } else {
-                                    viewModel.nextHole()
-                                }
+                                showingRoundSummary = true
                             } label: {
-                                Text(viewModel.currentHole >= viewModel.holeCount ? "Finish" : "Next Hole")
+                                Text("Summary")
                                     .fontWeight(.semibold)
                             }
-                            .accessibilityLabel(viewModel.currentHole >= viewModel.holeCount ? "Finish round" : "Next hole")
+                        }
+                    } else {
+                        // In-progress round: show editing controls
+                        ToolbarItem(placement: .secondaryAction) {
+                            Button {
+                                quickEntryMode.toggle()
+                            } label: {
+                                Image(systemName: quickEntryMode ? "bolt.fill" : "bolt")
+                                    .foregroundStyle(quickEntryMode ? Theme.primary : Theme.textSecondary)
+                            }
+                            .accessibilityLabel(quickEntryMode ? "Switch to standard entry" : "Switch to quick entry")
+                        }
+                        if !quickEntryMode {
+                            ToolbarItem(placement: .primaryAction) {
+                                Button {
+                                    if viewModel.currentHole >= viewModel.holeCount {
+                                        viewModel.showingRoundComplete = true
+                                    } else {
+                                        viewModel.nextHole()
+                                    }
+                                } label: {
+                                    Text(viewModel.currentHole >= viewModel.holeCount ? "Finish" : "Next Hole")
+                                        .fontWeight(.semibold)
+                                }
+                                .accessibilityLabel(viewModel.currentHole >= viewModel.holeCount ? "Finish round" : "Next hole")
+                            }
                         }
                     }
                 } else {
@@ -84,6 +107,20 @@ struct ScorecardView: View {
             .sheet(isPresented: $viewModel.showingRoundSetup) {
                 RoundSetupView(viewModel: viewModel)
             }
+            .sheet(isPresented: $showingRoundSummary) {
+                if let round = viewModel.currentRound,
+                   let trip = viewModel.currentTrip,
+                   let course = round.course {
+                    NavigationStack {
+                        RoundSummaryView(round: round, trip: trip, course: course)
+                            .toolbar {
+                                ToolbarItem(placement: .confirmationAction) {
+                                    Button("Done") { showingRoundSummary = false }
+                                }
+                            }
+                    }
+                }
+            }
         }
     }
 
@@ -95,7 +132,15 @@ struct ScorecardView: View {
                     Button {
                         viewModel.selectRound(round)
                     } label: {
-                        RoundRowView(round: round, courseName: courseName)
+                        HStack {
+                            RoundRowView(round: round, courseName: courseName)
+                            if round.isComplete {
+                                Spacer()
+                                Text("Review")
+                                    .font(.caption)
+                                    .foregroundStyle(Theme.primary)
+                            }
+                        }
                     }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button(role: .destructive) {

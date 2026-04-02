@@ -5,6 +5,7 @@ struct HoleByHoleScoringView: View {
     let round: Round
     let course: Course
     let players: [Player]
+    var isReadOnly: Bool = false
 
     var currentHoleInfo: Hole? {
         course.holes.first { $0.number == viewModel.currentHole }
@@ -28,7 +29,8 @@ struct HoleByHoleScoringView: View {
                             player: player,
                             holeNumber: viewModel.currentHole,
                             score: viewModel.scoreForPlayer(player.id, roundId: round.id, holeNumber: viewModel.currentHole),
-                            puttsRequired: viewModel.puttsRequiredForCurrentRound,
+                            puttsRequired: isReadOnly ? false : viewModel.puttsRequiredForCurrentRound,
+                            isReadOnly: isReadOnly,
                             onScoreChanged: { strokes, putts in
                                 viewModel.updateScore(
                                     roundId: round.id,
@@ -225,6 +227,7 @@ struct PlayerScoreCard: View {
     let holeNumber: Int
     let score: HoleScore?
     var puttsRequired: Bool = false
+    var isReadOnly: Bool = false
     let onScoreChanged: (Int, Int) -> Void
 
     @State private var strokes: Int = 0
@@ -266,6 +269,39 @@ struct PlayerScoreCard: View {
                 }
             }
 
+            if isReadOnly {
+                // Read-only display: just show the scores without controls
+                HStack(spacing: 24) {
+                    VStack(spacing: 2) {
+                        Text("STROKES")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text("\(strokes)")
+                            .font(.system(size: 28, weight: .bold))
+                    }
+                    if putts > 0 {
+                        Divider().frame(height: 40)
+                        VStack(spacing: 2) {
+                            Text("PUTTS")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Text("\(putts)")
+                                .font(.system(size: 28, weight: .bold))
+                        }
+                    }
+                    if let score = score, score.isCompleted {
+                        Divider().frame(height: 40)
+                        VStack(spacing: 2) {
+                            Text("NET")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Text("\(score.netStrokes)")
+                                .font(.system(size: 28, weight: .bold))
+                                .foregroundStyle(score.netScoreColor)
+                        }
+                    }
+                }
+            } else {
             // Score Stepper
             HStack(spacing: 20) {
                 VStack(spacing: 4) {
@@ -361,6 +397,7 @@ struct PlayerScoreCard: View {
                     }
                 }
             }
+            } // end else (editable mode)
         }
         .padding()
         .background(Theme.cardBackground)
