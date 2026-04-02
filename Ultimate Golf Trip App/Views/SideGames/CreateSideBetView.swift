@@ -32,35 +32,64 @@ struct CreateSideBetView: View {
     var body: some View {
         NavigationStack {
             Form {
-                // MARK: - Challenge Type
-                Section {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Scorecard-Based")
-                            .font(.caption.bold())
-                            .foregroundStyle(.secondary)
+                // MARK: - Challenge Type (hidden when coming from template)
+                if !viewModel.isFromTemplate {
+                    Section {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Scorecard-Based")
+                                .font(.caption.bold())
+                                .foregroundStyle(.secondary)
 
-                        FlowLayout(spacing: 8) {
-                            ForEach(scorecardTypes) { type in
-                                challengeTypeChip(type)
+                            FlowLayout(spacing: 8) {
+                                ForEach(scorecardTypes) { type in
+                                    challengeTypeChip(type)
+                                }
+                            }
+
+                            Text("Custom / Manual")
+                                .font(.caption.bold())
+                                .foregroundStyle(.secondary)
+                                .padding(.top, 4)
+
+                            FlowLayout(spacing: 8) {
+                                ForEach(manualTypes) { type in
+                                    challengeTypeChip(type)
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    } header: {
+                        Text("Challenge Type")
+                    } footer: {
+                        Text(viewModel.newBetType.description)
+                    }
+                }
+
+                // MARK: - Template Summary (shown when coming from template)
+                if viewModel.isFromTemplate {
+                    Section {
+                        HStack {
+                            Image(systemName: viewModel.newBetType.icon)
+                                .foregroundStyle(Theme.primary)
+                                .frame(width: 28)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(viewModel.newBetType.displayName)
+                                    .font(.headline)
+                                Text(viewModel.newBetType.description)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
                             }
                         }
 
-                        Text("Custom / Manual")
-                            .font(.caption.bold())
-                            .foregroundStyle(.secondary)
-                            .padding(.top, 4)
-
-                        FlowLayout(spacing: 8) {
-                            ForEach(manualTypes) { type in
-                                challengeTypeChip(type)
+                        // Gross/Net toggle — prominent for template flow
+                        if viewModel.newBetType.supportsNetScoring {
+                            Picker("Scoring", selection: $viewModel.newBetUseNetScoring) {
+                                Text("Gross").tag(false)
+                                Text("Net (Handicap)").tag(true)
                             }
+                            .pickerStyle(.segmented)
                         }
                     }
-                    .padding(.vertical, 4)
-                } header: {
-                    Text("Challenge Type")
-                } footer: {
-                    Text(viewModel.newBetType.description)
                 }
 
                 // MARK: - Challenge Name
@@ -80,7 +109,8 @@ struct CreateSideBetView: View {
                                 }
                             }
 
-                            if viewModel.newBetType.supportsNetScoring {
+                            // Gross/Net toggle (only shown in non-template flow, template shows it above)
+                            if !viewModel.isFromTemplate && viewModel.newBetType.supportsNetScoring {
                                 Toggle("Use Net Scoring", isOn: $viewModel.newBetUseNetScoring)
 
                                 if viewModel.newBetUseNetScoring {
@@ -187,8 +217,15 @@ struct CreateSideBetView: View {
                     }
                 }
             }
-            .navigationTitle("New Challenge")
+            .navigationTitle(viewModel.isFromTemplate ? "Set Up Challenge" : "New Challenge")
             .navigationBarTitleDisplayMode(.inline)
+            .onChange(of: viewModel.newBetUseNetScoring) { _, useNet in
+                // Update name to reflect gross/net when in template mode
+                if viewModel.isFromTemplate && viewModel.newBetType.supportsNetScoring {
+                    let base = viewModel.newBetType.displayName
+                    viewModel.newBetName = useNet ? "\(base) (Net)" : "\(base) (Gross)"
+                }
+            }
             .onChange(of: viewModel.newBetType) { _, newType in
                 viewModel.newBetRequiresPutts = newType.requiresPuttsTracking
                 // Clear round selection when switching to non-round-based type

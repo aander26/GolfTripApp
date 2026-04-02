@@ -363,9 +363,13 @@ class ChallengesViewModel {
 
     // MARK: - Quick Create Templates
 
+    /// Tracks whether the form was opened from a template (skips type selection UI).
+    var isFromTemplate: Bool = false
+
     /// Pre-fill the create form from a challenge template.
     func applyTemplate(_ template: ChallengeTemplate) {
         resetBetForm()
+        isFromTemplate = true
         newBetName = template.displayName
         newBetType = template.betType
         newBetUseNetScoring = template.useNetScoring
@@ -374,6 +378,14 @@ class ChallengesViewModel {
         // Select all players by default
         if let trip = currentTrip {
             newBetParticipants = Set(trip.players.map(\.id))
+
+            // Auto-select the round if there's only one (or the most recent incomplete one)
+            let activeRounds = trip.rounds.filter { !$0.isComplete }
+            if activeRounds.count == 1 {
+                newBetRoundId = activeRounds.first?.id
+            } else if let latest = trip.rounds.last {
+                newBetRoundId = latest.id
+            }
         }
 
         showingCreateBet = true
@@ -382,6 +394,7 @@ class ChallengesViewModel {
     // MARK: - Form Reset
 
     func resetBetForm() {
+        isFromTemplate = false
         newBetName = ""
         newBetType = .lowRound
         newBetTargetValue = ""
