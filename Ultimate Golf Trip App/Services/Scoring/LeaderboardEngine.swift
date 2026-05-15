@@ -16,7 +16,10 @@ struct LeaderboardEngine {
             )
         }
 
-        // Accumulate scores from all rounds
+        // Accumulate scores from all rounds. Only stroke-play rounds contribute to cumulative
+        // gross/net totals — match play, best ball, and scramble compete on different units
+        // (holes won, team-best score, team total) and summing their gross would mislead.
+        // Stableford rounds contribute to `stablefordPoints` only, not gross/net.
         for round in trip.rounds {
             guard let course = round.course else { continue }
             let processed = ScoringEngine.processRound(round: round, course: course)
@@ -26,20 +29,22 @@ struct LeaderboardEngine {
                 // and would silently corrupt leaderboard data if the fallback ID collided.
                 guard !scorecard.isOrphaned, var entry = entries[scorecard.playerId] else { continue }
 
-                let grossToPar = ScoringEngine.scoreToPar(scorecard: scorecard)
-                let netToPar = ScoringEngine.netScoreToPar(scorecard: scorecard)
+                if round.format == .strokePlay {
+                    let grossToPar = ScoringEngine.scoreToPar(scorecard: scorecard)
+                    let netToPar = ScoringEngine.netScoreToPar(scorecard: scorecard)
 
-                entry.totalGross += scorecard.totalGross
-                entry.totalNet += scorecard.totalNet
-                entry.scoreToPar += grossToPar
-                entry.netScoreToPar += netToPar
-                entry.holesCompleted += scorecard.holesCompleted
+                    entry.totalGross += scorecard.totalGross
+                    entry.totalNet += scorecard.totalNet
+                    entry.scoreToPar += grossToPar
+                    entry.netScoreToPar += netToPar
+                    entry.holesCompleted += scorecard.holesCompleted
 
-                if scorecard.isComplete {
-                    entry.roundsCompleted += 1
+                    if scorecard.isComplete {
+                        entry.roundsCompleted += 1
+                    }
                 }
 
-                // Stableford points
+                // Stableford points come from stableford rounds only.
                 if round.format == .stableford,
                    let rawScorecard = round.scorecards.first(where: { $0.player?.id == scorecard.playerId }) {
                     entry.stablefordPoints += ScoringEngine.calculateStablefordTotal(

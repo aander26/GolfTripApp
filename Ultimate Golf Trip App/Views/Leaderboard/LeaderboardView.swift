@@ -53,26 +53,65 @@ struct LeaderboardView: View {
 
     private var overallLeaderboard: some View {
         Group {
-            if viewModel.overallLeaderboard.isEmpty {
+            let strokeEntries = viewModel.hasStrokePlayRounds ? viewModel.overallLeaderboard : []
+            let stablefordEntries = viewModel.hasStablefordRounds ? viewModel.stablefordLeaderboard : []
+            if strokeEntries.isEmpty && stablefordEntries.isEmpty {
                 emptyLeaderboard
             } else {
                 List {
-                    // Toggle Net/Gross
-                    Toggle("Show Net Scores", isOn: $viewModel.showingNetScores)
-                        .tint(Theme.primary)
+                    if !strokeEntries.isEmpty {
+                        Toggle("Show Net Scores", isOn: $viewModel.showingNetScores)
+                            .tint(Theme.primary)
 
-                    Section {
-                        ForEach(viewModel.overallLeaderboard) { entry in
-                            NavigationLink(value: entry) {
-                                LeaderboardRowView(
-                                    entry: entry,
-                                    showNet: viewModel.showingNetScores,
-                                    playerColor: viewModel.currentTrip?.player(withId: entry.playerId)?.avatarColor ?? .blue
-                                )
+                        Section {
+                            ForEach(strokeEntries) { entry in
+                                NavigationLink(value: entry) {
+                                    LeaderboardRowView(
+                                        entry: entry,
+                                        showNet: viewModel.showingNetScores,
+                                        playerColor: viewModel.currentTrip?.player(withId: entry.playerId)?.avatarColor ?? .blue
+                                    )
+                                }
                             }
+                        } header: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Stroke Play").sectionHeader()
+                                leaderboardHeader
+                            }
+                        } footer: {
+                            Text("Cumulative across stroke-play rounds only. Match play, best ball, and scramble rounds use different scoring units and are shown separately.")
+                                .font(.caption2)
+                                .foregroundStyle(Theme.textSecondary)
                         }
-                    } header: {
-                        leaderboardHeader
+                    }
+
+                    if !stablefordEntries.isEmpty {
+                        Section {
+                            ForEach(stablefordEntries) { entry in
+                                NavigationLink(value: entry) {
+                                    StablefordRowView(
+                                        entry: entry,
+                                        playerColor: viewModel.currentTrip?.player(withId: entry.playerId)?.avatarColor ?? .blue
+                                    )
+                                }
+                            }
+                        } header: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Stableford").sectionHeader()
+                                HStack {
+                                    Text("POS").frame(width: 32, alignment: .leading)
+                                    Text("PLAYER")
+                                    Spacer()
+                                    Text("PTS").frame(width: 50, alignment: .trailing)
+                                }
+                                .font(.caption2)
+                                .fontWeight(.bold)
+                            }
+                        } footer: {
+                            Text("Cumulative Stableford points across all Stableford rounds.")
+                                .font(.caption2)
+                                .foregroundStyle(Theme.textSecondary)
+                        }
                     }
 
                     Section {
@@ -276,6 +315,48 @@ struct LeaderboardView: View {
             systemImage: "trophy",
             description: Text("Start a round and enter scores to see the leaderboard.")
         )
+    }
+}
+
+// MARK: - Stableford Row
+
+/// Compact row that shows Stableford points instead of gross/net — used in the format-aware
+/// Overall leaderboard's Stableford section.
+struct StablefordRowView: View {
+    let entry: LeaderboardEntry
+    let playerColor: PlayerColor
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(entry.positionDisplay)
+                .font(.headline)
+                .fontWeight(.bold)
+                .frame(width: 32, alignment: .leading)
+                .foregroundStyle(entry.position == 1 ? Theme.primary : Theme.textPrimary)
+
+            Circle()
+                .fill(playerColor.color)
+                .frame(width: 28, height: 28)
+                .overlay {
+                    Text(String(entry.playerName.prefix(1)))
+                        .font(.caption)
+                        .fontWeight(.bold)
+                        .foregroundStyle(.white)
+                }
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(entry.playerName).font(.subheadline.weight(.semibold))
+                Text("\(entry.totalRounds) round\(entry.totalRounds == 1 ? "" : "s")")
+                    .font(.caption2)
+                    .foregroundStyle(Theme.textSecondary)
+            }
+
+            Spacer()
+            Text("\(entry.stablefordPoints)")
+                .font(.headline.weight(.bold))
+                .monospacedDigit()
+                .frame(width: 50, alignment: .trailing)
+        }
     }
 }
 

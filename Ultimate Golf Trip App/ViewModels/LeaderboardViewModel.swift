@@ -75,6 +75,24 @@ class LeaderboardViewModel {
         return LeaderboardEngine.generateStablefordLeaderboard(trip: trip)
     }
 
+    // MARK: - Format presence helpers
+
+    /// True when the trip contains at least one stroke-play round — the only format that
+    /// contributes to cumulative gross/net totals.
+    var hasStrokePlayRounds: Bool {
+        currentTrip?.rounds.contains { $0.format == .strokePlay } ?? false
+    }
+
+    /// True when the trip contains at least one Stableford round — surface the Stableford section.
+    var hasStablefordRounds: Bool {
+        currentTrip?.rounds.contains { $0.format == .stableford } ?? false
+    }
+
+    /// True when the trip contains at least one match-play round — surface the team-points / W-L-H section.
+    var hasMatchPlayRounds: Bool {
+        currentTrip?.rounds.contains { $0.format == .matchPlay } ?? false
+    }
+
     // MARK: - Available Rounds
 
     var availableRounds: [(id: UUID, label: String)] {

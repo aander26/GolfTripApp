@@ -41,6 +41,15 @@ struct HoleByHoleScoringView: View {
         round.trackPutts || viewModel.puttsRequiredForCurrentRound
     }
 
+    /// Mark a pairing as conceded with the given winner. The engine then short-circuits the
+    /// match result to a closed-out state on the next banner refresh.
+    private func concedeMatch(pairingId: UUID, winnerPlayerId: UUID) {
+        guard let idx = round.matchPairings.firstIndex(where: { $0.id == pairingId }) else { return }
+        round.matchPairings[idx].concededWinnerId = winnerPlayerId
+        round.updatedAt = Date()
+        viewModel.appState.saveContext()
+    }
+
     /// Live match status — hidden for non-match formats and rounds without scores yet.
     /// Personalized: the headline prefers the current user's pairing.
     private var matchBannerState: LiveMatchBannerState {
@@ -64,7 +73,13 @@ struct HoleByHoleScoringView: View {
             }
 
             // Live match status banner (hidden for non-match formats)
-            LiveMatchStatusBanner(state: matchBannerState, totalHoles: course.holes.count)
+            LiveMatchStatusBanner(
+                state: matchBannerState,
+                totalHoles: course.holes.count,
+                onConcede: isReadOnly ? nil : { pairingId, winnerPlayerId in
+                    concedeMatch(pairingId: pairingId, winnerPlayerId: winnerPlayerId)
+                }
+            )
 
             // Player Scores
             ScrollView {

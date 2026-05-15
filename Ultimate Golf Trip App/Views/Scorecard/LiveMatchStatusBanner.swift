@@ -5,6 +5,10 @@ import SwiftUI
 struct LiveMatchStatusBanner: View {
     let state: LiveMatchBannerState
     let totalHoles: Int
+    /// Called when the user concedes a match from the detail sheet. The pairing ID identifies
+    /// the match; the player ID is the conceding side's *opponent* (i.e., the winner).
+    /// Optional — pass nil when concession isn't supported (e.g., read-only completed rounds).
+    var onConcede: ((_ pairingId: UUID, _ winnerPlayerId: UUID) -> Void)? = nil
 
     @State private var showingDetail = false
 
@@ -19,7 +23,7 @@ struct LiveMatchStatusBanner: View {
             }
             .buttonStyle(.plain)
             .sheet(isPresented: $showingDetail) {
-                LiveMatchDetailSheet(state: state, totalHoles: totalHoles)
+                LiveMatchDetailSheet(state: state, totalHoles: totalHoles, onConcede: onConcede)
             }
         }
     }
@@ -62,6 +66,17 @@ struct LiveMatchStatusBanner: View {
                         .font(.caption.weight(.bold))
                         .foregroundStyle(secondaryColor)
                         .lineLimit(2)
+                }
+                if let teamRecord = state.teamRecordLine, !teamRecord.isEmpty {
+                    Text(teamRecord)
+                        .font(.caption2.weight(.heavy))
+                        .tracking(0.4)
+                        .foregroundStyle(Theme.primary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Theme.primary.opacity(0.12))
+                        .clipShape(Capsule())
+                        .padding(.top, 2)
                 }
             }
             Spacer(minLength: 8)

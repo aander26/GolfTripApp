@@ -47,6 +47,60 @@ struct TeamMatchPlayEngine {
         }
     }
 
+    // MARK: - Materialize pairings
+
+    /// Populate `round.matchPairings` from team rosters when it's empty. Match-play results
+    /// need stable pairing IDs across renders (so concession targets the right match), and
+    /// auto-generated pairings produced inside calculation paths would get fresh IDs every call.
+    ///
+    /// Idempotent — calls after pairings exist do nothing.
+    /// - Returns: true when pairings were generated and stored.
+    @discardableResult
+    static func materializePairingsIfNeeded(
+        round: Round,
+        players: [Player],
+        teams: [Team]
+    ) -> Bool {
+        guard round.matchPairings.isEmpty,
+              round.format == .matchPlay,
+              teams.count >= 2 else { return false }
+        var pairings: [MatchPairing] = []
+        let teamPairs = generateTeamPairs(teams: teams)
+        for (teamA, teamB) in teamPairs {
+            let aPlayers = players.filter { $0.team?.id == teamA.id && round.playerIds.contains($0.id) }
+            let bPlayers = players.filter { $0.team?.id == teamB.id && round.playerIds.contains($0.id) }
+            pairings.append(contentsOf: generatePairings(team1Players: aPlayers, team2Players: bPlayers))
+        }
+        guard !pairings.isEmpty else { return false }
+        round.matchPairings = pairings
+        return true
+    }
+
+    // MARK: - Concession
+
+    /// Synthesize a `MatchPlayResult` representing a conceded match. The winner gets a 1 UP
+    /// margin with `holesPlayed == totalHoles` so `isComplete` is true and downstream display
+    /// reads "WIN 1 UP" / "CONCEDED" in the banner.
+    static func concededResult(
+        pairingId: UUID,
+        player1Id: UUID,
+        player2Id: UUID,
+        winnerId: UUID,
+        totalHoles: Int
+    ) -> MatchPlayResult {
+        let p1Won = winnerId == player1Id
+        return MatchPlayResult(
+            id: pairingId,
+            player1Id: player1Id,
+            player2Id: player2Id,
+            player1Wins: p1Won ? 1 : 0,
+            player2Wins: p1Won ? 0 : 1,
+            holesPlayed: totalHoles,
+            totalHoles: totalHoles,
+            result: "Conceded"
+        )
+    }
+
     // MARK: - Auto-Pairing
 
     /// Generate match pairings for a round based on team rosters.
@@ -218,13 +272,35 @@ struct TeamMatchPlayEngine {
                   let p2 = players.first(where: { $0.id == pairing.player2Id })
             else { return nil }
 
+            // Conceded matches resolve to a final result regardless of remaining unscored holes.
+            // No need to require any scored holes — a concession can happen on the first tee.
+            if let winnerId = pairing.concededWinnerId {
+                return IndividualMatchResult(
+                    player1Id: p1.id,
+                    player2Id: p2.id,
+                    player1Name: p1.name,
+                    player2Name: p2.name,
+                    player1TeamId: p1.team?.id ?? p1.id,
+                    player2TeamId: p2.team?.id ?? p2.id,
+                    matchPlayResult: concededResult(
+                        pairingId: pairing.id,
+                        player1Id: p1.id,
+                        player2Id: p2.id,
+                        winnerId: winnerId,
+                        totalHoles: course.holes.count
+                    )
+                )
+            }
+
             guard card1.holesCompleted > 0 || card2.holesCompleted > 0 else { return nil }
 
-            let matchResult = ScoringEngine.calculateMatchPlay(
+            var matchResult = ScoringEngine.calculateMatchPlay(
                 player1Card: card1,
                 player2Card: card2,
                 holes: course.holes
             )
+            // Pin the result's ID to the pairing's ID so concession + banner identity stay aligned.
+            matchResult.id = pairing.id
 
             return IndividualMatchResult(
                 player1Id: p1.id,

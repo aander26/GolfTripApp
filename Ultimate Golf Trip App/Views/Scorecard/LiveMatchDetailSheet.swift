@@ -5,8 +5,12 @@ import SwiftUI
 struct LiveMatchDetailSheet: View {
     let state: LiveMatchBannerState
     let totalHoles: Int
+    /// Concession action — when nil, the Concede button is hidden. The closure receives the
+    /// pairing ID and the player ID of the *winner* (i.e., the player NOT conceding).
+    var onConcede: ((_ pairingId: UUID, _ winnerPlayerId: UUID) -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
+    @State private var concedingPairing: PairingSummary?
 
     var body: some View {
         NavigationStack {
@@ -26,7 +30,39 @@ struct LiveMatchDetailSheet: View {
                     Button("Done") { dismiss() }
                 }
             }
+            .confirmationDialog(
+                concedeDialogTitle,
+                isPresented: Binding(
+                    get: { concedingPairing != nil },
+                    set: { if !$0 { concedingPairing = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                if let p = concedingPairing,
+                   let leftId = p.leftPlayerId,
+                   let rightId = p.rightPlayerId {
+                    // Concede TO the other side — winner is the opposite player.
+                    Button("\(p.leftLabel) concedes to \(p.rightLabel)", role: .destructive) {
+                        onConcede?(p.id, rightId)
+                        concedingPairing = nil
+                        dismiss()
+                    }
+                    Button("\(p.rightLabel) concedes to \(p.leftLabel)", role: .destructive) {
+                        onConcede?(p.id, leftId)
+                        concedingPairing = nil
+                        dismiss()
+                    }
+                    Button("Cancel", role: .cancel) { concedingPairing = nil }
+                }
+            } message: {
+                Text("Concession marks the match complete. The winner gets the match — remaining holes still play out for scoring, but the result is locked.")
+            }
         }
+    }
+
+    private var concedeDialogTitle: String {
+        guard let p = concedingPairing else { return "" }
+        return "Concede \(p.leftLabel) vs \(p.rightLabel)?"
     }
 
     @ViewBuilder
@@ -72,6 +108,24 @@ struct LiveMatchDetailSheet: View {
             if !pairing.holeResults.isEmpty {
                 Divider()
                 perHoleStrip(pairing)
+            }
+
+            // Concede affordance. Available only for individual match play (pairings with
+            // player IDs), only when the match is in progress, and only when a concession
+            // handler was provided by the parent.
+            if !pairing.isComplete,
+               onConcede != nil,
+               pairing.leftPlayerId != nil,
+               pairing.rightPlayerId != nil {
+                Divider()
+                Button(role: .destructive) {
+                    concedingPairing = pairing
+                } label: {
+                    Label("Concede match", systemImage: "flag.fill")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity, alignment: .center)
+                }
+                .buttonStyle(.bordered)
             }
         }
         .padding(14)

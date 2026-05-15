@@ -29,13 +29,19 @@ struct LiveMatchBannerState: Equatable {
     /// True when the headline match is dormie (leader up by exactly remaining holes).
     let isDormie: Bool
 
+    /// Optional "MY TEAM 2-1-0" pill summarizing the user's team record across all pairings/matches
+    /// in this round. Nil when there's no team context (singles round-robin, no teams configured,
+    /// or the user has no team).
+    let teamRecordLine: String?
+
     static let hidden = LiveMatchBannerState(
         mode: .hidden,
         primaryLine: "",
         secondaryLine: nil,
         pairings: [],
         isClosedOut: false,
-        isDormie: false
+        isDormie: false,
+        teamRecordLine: nil
     )
 }
 
@@ -58,6 +64,10 @@ struct PairingSummary: Identifiable, Equatable {
     /// Per-hole result from left side's perspective, indexed by hole number.
     /// .win/.loss/.halve/.notPlayed.
     let holeResults: [Int: HoleResult]
+    /// Player IDs of each side. Populated for individual/singles match play. Nil for team-vs-team
+    /// (best ball, nines) where the "side" is a team, not a single player. Used by the concede flow.
+    let leftPlayerId: UUID?
+    let rightPlayerId: UUID?
 }
 
 enum HoleResult: Equatable {
@@ -80,6 +90,15 @@ enum LiveMatchStatusViewModel {
         // Need at least 2 teams for any match-play computation.
         guard trip.teams.count >= 2 else { return .hidden }
 
+        // Lazily persist auto-generated match pairings on first access. Without this, every
+        // engine call produces fresh UUIDs for transient pairings and concession can't target
+        // a stable identity. Idempotent — only runs once per round when pairings are empty.
+        TeamMatchPlayEngine.materializePairingsIfNeeded(
+            round: round,
+            players: trip.players,
+            teams: trip.teams
+        )
+
         let rule = TeamMatchPlayEngine.resolveScoringRule(round: round, trip: trip)
         let result = TeamMatchPlayEngine.calculateRoundResults(
             round: round,
@@ -89,13 +108,34 @@ enum LiveMatchStatusViewModel {
             scoringRule: rule
         )
 
+        // Compute the user's team record across all matches in this round, used by the banner
+        // as a single pill ("BLUE 2-1-0"). Nil when there's no team context.
+        let userTeamId: UUID? = {
+            guard let pid = currentPlayerId,
+                  let player = trip.players.first(where: { $0.id == pid }) else { return nil }
+            return player.team?.id
+        }()
+        let teamRecordLine = teamRecordSummary(
+            result: result,
+            userTeamId: userTeamId,
+            teams: trip.teams
+        )
+
         // Best ball mode wins if populated.
         if !result.bestBallMatches.isEmpty {
-            return buildBestBallState(result: result, currentPlayerId: currentPlayerId)
+            return buildBestBallState(
+                result: result,
+                currentPlayerId: currentPlayerId,
+                teamRecordLine: teamRecordLine
+            )
         }
         // Nines & overall populates ninesMatches.
         if !result.ninesMatches.isEmpty {
-            return buildNinesState(result: result, currentPlayerId: currentPlayerId)
+            return buildNinesState(
+                result: result,
+                currentPlayerId: currentPlayerId,
+                teamRecordLine: teamRecordLine
+            )
         }
         // Traditional / singles match play populates individualMatches.
         if !result.individualMatches.isEmpty {
@@ -103,7 +143,8 @@ enum LiveMatchStatusViewModel {
                 result: result,
                 round: round,
                 course: course,
-                currentPlayerId: currentPlayerId
+                currentPlayerId: currentPlayerId,
+                teamRecordLine: teamRecordLine
             )
         }
 
@@ -117,7 +158,8 @@ enum LiveMatchStatusViewModel {
         result: RoundTeamMatchResult,
         round: Round,
         course: Course,
-        currentPlayerId: UUID?
+        currentPlayerId: UUID?,
+        teamRecordLine: String?
     ) -> LiveMatchBannerState {
         // Skip when no holes have been scored across any pairing yet — banner would be all-noise.
         let anyScored = result.individualMatches.contains { $0.matchPlayResult.holesPlayed > 0 }
@@ -145,7 +187,9 @@ enum LiveMatchStatusViewModel {
                 isComplete: mp.isComplete,
                 isDormie: mp.isDormie,
                 leadingSide: leading,
-                holeResults: holeResultsForIndividual(match: match, round: round, course: course)
+                holeResults: holeResultsForIndividual(match: match, round: round, course: course),
+                leftPlayerId: match.player1Id,
+                rightPlayerId: match.player2Id
             )
             return (summary, match)
         }
@@ -181,13 +225,15 @@ enum LiveMatchStatusViewModel {
             secondaryLine: secondary,
             pairings: pairings,
             isClosedOut: headline?.isComplete ?? false,
-            isDormie: headline?.isDormie ?? false
+            isDormie: headline?.isDormie ?? false,
+            teamRecordLine: teamRecordLine
         )
     }
 
     private static func buildBestBallState(
         result: RoundTeamMatchResult,
-        currentPlayerId: UUID?
+        currentPlayerId: UUID?,
+        teamRecordLine: String?
     ) -> LiveMatchBannerState {
         let anyScored = result.bestBallMatches.contains { $0.holesPlayed > 0 }
         guard anyScored else { return .hidden }
@@ -216,7 +262,9 @@ enum LiveMatchStatusViewModel {
                 isComplete: match.isComplete,
                 isDormie: match.isDormie,
                 leadingSide: leading,
-                holeResults: [:]   // per-hole granularity for best ball requires engine support; deferred
+                holeResults: [:],   // per-hole granularity for best ball requires engine support; deferred
+                leftPlayerId: nil,
+                rightPlayerId: nil
             )
         }
 
@@ -233,13 +281,15 @@ enum LiveMatchStatusViewModel {
             secondaryLine: secondary,
             pairings: pairings,
             isClosedOut: headline?.isComplete ?? false,
-            isDormie: headline?.isDormie ?? false
+            isDormie: headline?.isDormie ?? false,
+            teamRecordLine: teamRecordLine
         )
     }
 
     private static func buildNinesState(
         result: RoundTeamMatchResult,
-        currentPlayerId: UUID?
+        currentPlayerId: UUID?,
+        teamRecordLine: String?
     ) -> LiveMatchBannerState {
         let anyScored = result.ninesMatches.contains { $0.holesCompleted > 0 }
         guard anyScored else { return .hidden }
@@ -257,7 +307,9 @@ enum LiveMatchStatusViewModel {
                 isComplete: match.isComplete,
                 isDormie: false,        // dormie is a binary match concept; nines runs to 18 by design
                 leadingSide: nil,
-                holeResults: [:]
+                holeResults: [:],
+                leftPlayerId: nil,      // nines doesn't currently surface concession
+                rightPlayerId: nil
             )
             return (summary, match)
         }
@@ -279,7 +331,8 @@ enum LiveMatchStatusViewModel {
             secondaryLine: secondary,
             pairings: pairings,
             isClosedOut: pairings.allSatisfy { $0.isComplete },
-            isDormie: false
+            isDormie: false,
+            teamRecordLine: teamRecordLine
         )
     }
 
@@ -382,5 +435,85 @@ enum LiveMatchStatusViewModel {
             else { results[hole.number] = .halve }
         }
         return results
+    }
+
+    // MARK: - Team record summary
+
+    /// Build a "BLUE 2-1-0" pill summarizing the user's team record across all individual,
+    /// best ball, and nines matches in this round. Returns nil when there's no team to summarize.
+    private static func teamRecordSummary(
+        result: RoundTeamMatchResult,
+        userTeamId: UUID?,
+        teams: [Team]
+    ) -> String? {
+        guard let teamId = userTeamId,
+              let team = teams.first(where: { $0.id == teamId }) else { return nil }
+
+        var wins = 0, losses = 0, halves = 0, inProgress = 0
+        var counted = false
+
+        // Individual / singles / traditional match play: count one record per pairing involving this team.
+        for match in result.individualMatches {
+            guard match.player1TeamId == teamId || match.player2TeamId == teamId else { continue }
+            counted = true
+            if !match.matchPlayResult.isComplete {
+                inProgress += 1
+            } else if let winnerId = match.winningTeamId {
+                if winnerId == teamId { wins += 1 } else { losses += 1 }
+            } else {
+                halves += 1
+            }
+        }
+
+        // Best ball: count one record per team-vs-team match the team is in.
+        for match in result.bestBallMatches {
+            guard match.team1Id == teamId || match.team2Id == teamId else { continue }
+            counted = true
+            if !match.isComplete {
+                inProgress += 1
+            } else if let winnerId = match.winningTeamId {
+                if winnerId == teamId { wins += 1 } else { losses += 1 }
+            } else {
+                halves += 1
+            }
+        }
+
+        // Nines & overall: each pairing contributes up to 3 segment outcomes (F9, B9, OA).
+        for match in result.ninesMatches {
+            guard match.player1TeamId == teamId || match.player2TeamId == teamId else { continue }
+            counted = true
+            if match.front9Complete {
+                if match.front9Halved {
+                    halves += 1
+                } else if let winner = match.front9WinnerTeamId {
+                    if winner == teamId { wins += 1 } else { losses += 1 }
+                }
+            } else {
+                inProgress += 1
+            }
+            if match.isComplete {
+                if match.back9Halved {
+                    halves += 1
+                } else if let winner = match.back9WinnerTeamId {
+                    if winner == teamId { wins += 1 } else { losses += 1 }
+                }
+                if match.overallHalved {
+                    halves += 1
+                } else if let winner = match.overallWinnerTeamId {
+                    if winner == teamId { wins += 1 } else { losses += 1 }
+                }
+            } else {
+                inProgress += 2  // B9 + OA both still open
+            }
+        }
+
+        guard counted else { return nil }
+
+        // Compact summary: "BLUE 2-1-0" or "BLUE 1-0-0 · 2 open"
+        let core = "\(team.name.uppercased()) \(wins)-\(losses)-\(halves)"
+        if inProgress > 0 {
+            return "\(core) · \(inProgress) open"
+        }
+        return core
     }
 }
