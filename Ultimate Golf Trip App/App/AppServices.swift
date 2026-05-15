@@ -410,6 +410,10 @@ class AppState {
         local.deletedSideBetIds = Array(Set(local.deletedSideBetIds).union(Set(cloud.deletedSideBetIds)))
         local.deletedWarRoomEventIds = Array(Set(local.deletedWarRoomEventIds).union(Set(cloud.deletedWarRoomEventIds)))
 
+        // Pre-event confirmations are append-only across devices — union both sides so any
+        // device's confirmation propagates everywhere.
+        local.confirmedByPlayerIds = Array(Set(local.confirmedByPlayerIds).union(Set(cloud.confirmedByPlayerIds)))
+
         // Remove locally-existing entities that were deleted on another device
         for idStr in cloud.deletedPlayerIds {
             if let id = UUID(uuidString: idStr) { local.players.removeAll { $0.id == id } }

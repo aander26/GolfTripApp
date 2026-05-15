@@ -167,6 +167,32 @@ struct TripDetailView: View {
                         }
                     }
 
+                    // Pre-Event Review
+                    Section {
+                        NavigationLink {
+                            TripConfirmationView(
+                                viewModel: TripConfirmationViewModel(appState: appState)
+                            )
+                        } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: confirmationIconName(trip: trip))
+                                    .font(.title3)
+                                    .foregroundStyle(allPlayersConfirmed(trip: trip) ? Theme.success : Theme.primary)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Review Pre-Event Setup")
+                                        .font(.subheadline.weight(.semibold))
+                                    Text(confirmationSubtitle(trip: trip))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    } footer: {
+                        Text("A read-only checklist of teams, rounds, matchups, and side challenges. Tap to review and confirm before the event begins.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+
                     // Profile & Trip Actions
                     Section {
                         Button {
@@ -232,6 +258,39 @@ struct TripDetailView: View {
                 Text("Are you sure you want to leave this trip? You will need a share code to rejoin.")
             }
         }
+    }
+
+    // MARK: - Pre-event confirmation helpers
+
+    /// Whether the current user has personally confirmed the pre-event setup for this trip.
+    private func currentUserConfirmed(trip: Trip) -> Bool {
+        guard let me = appState.myPlayer(in: trip) else { return false }
+        return trip.confirmedByPlayerIds.contains(me.id.uuidString)
+    }
+
+    /// Whether every app-user player in the trip has confirmed.
+    private func allPlayersConfirmed(trip: Trip) -> Bool {
+        let appUserIds = trip.players.compactMap { p -> String? in
+            p.userProfileId != nil ? p.id.uuidString : nil
+        }
+        guard !appUserIds.isEmpty else { return false }
+        let confirmedSet = Set(trip.confirmedByPlayerIds)
+        return appUserIds.allSatisfy { confirmedSet.contains($0) }
+    }
+
+    private func confirmationIconName(trip: Trip) -> String {
+        if allPlayersConfirmed(trip: trip) { return "checkmark.seal.fill" }
+        if currentUserConfirmed(trip: trip) { return "checkmark.circle.fill" }
+        return "list.bullet.clipboard"
+    }
+
+    private func confirmationSubtitle(trip: Trip) -> String {
+        let confirmedCount = trip.confirmedByPlayerIds.count
+        let total = trip.players.filter { $0.userProfileId != nil }.count
+        if allPlayersConfirmed(trip: trip) { return "All players confirmed" }
+        if currentUserConfirmed(trip: trip) { return "You confirmed · \(confirmedCount)/\(total) total" }
+        if total > 0 { return "\(confirmedCount)/\(total) confirmed — tap to review" }
+        return "Tap to review"
     }
 }
 

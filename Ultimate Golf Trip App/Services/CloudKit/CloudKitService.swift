@@ -601,6 +601,9 @@ actor CloudKitService {
         if !trip.deletedWarRoomEventIds.isEmpty {
             record["deletedWarRoomEventIds"] = trip.deletedWarRoomEventIds as CKRecordValue
         }
+        if !trip.confirmedByPlayerIds.isEmpty {
+            record["confirmedByPlayerIds"] = trip.confirmedByPlayerIds as CKRecordValue
+        }
         return record
     }
 
@@ -830,6 +833,7 @@ actor CloudKitService {
         trip.deletedSideGameIds = record["deletedSideGameIds"] as? [String] ?? []
         trip.deletedSideBetIds = record["deletedSideBetIds"] as? [String] ?? []
         trip.deletedWarRoomEventIds = record["deletedWarRoomEventIds"] as? [String] ?? []
+        trip.confirmedByPlayerIds = record["confirmedByPlayerIds"] as? [String] ?? []
         return trip
     }
 

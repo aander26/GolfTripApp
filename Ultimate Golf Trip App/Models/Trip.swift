@@ -58,9 +58,14 @@ final class Trip {
     var deletedWarRoomEventIds: [String] = []
     var deletedRoundIds: [String] = []
 
+    /// Player IDs (as UUID strings) of users who have confirmed the pre-event setup.
+    /// Append-only across devices — confirmation by any device unions into the set.
+    /// Does not lock editing; purely a "this user reviewed the setup" signal.
+    var confirmedByPlayerIds: [String] = []
+
     /// Schema version for forward-compatibility. Old clients that don't understand
     /// newer fields should not push data that regresses values set by newer clients.
-    var schemaVersion: Int = 2
+    var schemaVersion: Int = 3
 
     init(
         id: UUID = UUID(),
