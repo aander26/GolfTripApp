@@ -27,6 +27,11 @@ final class ScorecardImportViewModel: Identifiable {
     /// User-chosen player for each row, keyed by row id. nil = row will be ignored on apply.
     var playerByRow: [UUID: UUID] = [:]
 
+    /// Optional scope: when the round has playing groups, this restricts `availablePlayers` to
+    /// a single group so player pickers don't have to scroll through the whole roster. Defaults
+    /// to the current user's group when present. `nil` = show every player in the round.
+    var scopedGroupId: UUID? = nil
+
     /// User-overridden strokes per (rowId, holeNumber). Takes precedence over OCR.
     var overrides: [String: Int] = [:]
 
@@ -46,6 +51,43 @@ final class ScorecardImportViewModel: Identifiable {
         self.roundId = round.id
         self.courseId = course.id
         self.holeCount = max(course.holes.count, 1)
+
+        // Default the scope to the current user's playing group, if the round has groups
+        // and the user is in one. The user can change it on the review screen.
+        if let trip = scorecardVM.currentTrip,
+           let me = scorecardVM.appState.myPlayer(in: trip),
+           let myGroup = round.playingGroup(containing: me.id) {
+            self.scopedGroupId = myGroup.id
+        }
+    }
+
+    // MARK: - Playing-group scope
+
+    /// All playing groups defined on the round (empty if none).
+    var playingGroups: [PlayingGroup] {
+        guard let trip = scorecardVM?.currentTrip,
+              let round = trip.round(withId: roundId) else { return [] }
+        return round.playingGroups
+    }
+
+    /// Returns true when the round has playing groups configured — surface a group selector.
+    var hasPlayingGroups: Bool { !playingGroups.isEmpty }
+
+    /// All players in the round, regardless of scope. Used by the picker UI to display the
+    /// currently-mapped player even when scope has narrowed past them.
+    var allRoundPlayers: [Player] {
+        guard let trip = scorecardVM?.currentTrip,
+              let round = trip.round(withId: roundId) else { return [] }
+        return trip.players.filter { round.playerIds.contains($0.id) }
+    }
+
+    /// Switch the scope to a different playing group (or `nil` for all-players). Any rows
+    /// currently mapped to a player outside the new scope are cleared so they don't silently
+    /// apply to a hidden player.
+    func setScopedGroup(_ groupId: UUID?) {
+        scopedGroupId = groupId
+        let visibleIds = Set(availablePlayers.map(\.id))
+        playerByRow = playerByRow.filter { _, pid in visibleIds.contains(pid) }
     }
 
     /// True when this round has any existing scores — the apply step will confirm overwrite.
@@ -55,11 +97,17 @@ final class ScorecardImportViewModel: Identifiable {
         return round.scorecards.contains { $0.holesCompleted > 0 }
     }
 
-    /// The trip players eligible to map to rows.
+    /// The trip players eligible to map to rows. Narrowed to the scoped playing group when
+    /// one is selected, so a 12-player round doesn't surface all 12 in every picker.
     var availablePlayers: [Player] {
         guard let trip = scorecardVM?.currentTrip,
               let round = trip.round(withId: roundId) else { return [] }
-        return trip.players.filter { round.playerIds.contains($0.id) }
+        let inRound = trip.players.filter { round.playerIds.contains($0.id) }
+        guard let groupId = scopedGroupId,
+              let group = round.playingGroups.first(where: { $0.id == groupId }) else {
+            return inRound
+        }
+        return inRound.filter { group.playerIds.contains($0.id) }
     }
 
     // MARK: - Pipeline
@@ -185,14 +233,16 @@ final class ScorecardImportViewModel: Identifiable {
         }
         guard !playerByRow.isEmpty else { return .noPlayersMapped }
 
-        // Photo OCR doesn't extract putts. Flip the round's putts tracking off so the
-        // zero-putt values we write don't get treated as real data by leaderboards,
-        // putts-required challenges, or side games like Snake. Putts UI also disappears.
-        round.trackPutts = false
-
+        // Photo OCR doesn't extract putts. Mark each imported scorecard so consumers (challenges,
+        // side games like Snake) know its zero-putt values aren't authoritative — without
+        // affecting other players in the round who may have entered putts manually.
         var updatedHoles = 0
         for row in parsed.rows {
             guard let playerId = playerByRow[row.id] else { continue }
+            // Flag this scorecard as putts-imported BEFORE writing scores.
+            if let card = round.scorecards.first(where: { $0.player?.id == playerId }) {
+                card.puttsImported = true
+            }
             for hole in 1...holeCount {
                 guard let strokes = effectiveStrokes(rowId: row.id, holeNumber: hole) else { continue }
                 let didUpdate = scorecardVM.updateScore(

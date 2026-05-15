@@ -600,7 +600,8 @@ class AppState {
                         player: local.players.first { $0.id == cloudCard.player?.id },
                         holeScores: cloudCard.holeScores,
                         courseHandicap: cloudCard.courseHandicap,
-                        isComplete: cloudCard.isComplete
+                        isComplete: cloudCard.isComplete,
+                        puttsImported: cloudCard.puttsImported
                     )
                     newRound.scorecards.append(newCard)
                 }
@@ -647,6 +648,10 @@ class AppState {
                 // Convert back to sorted array — guaranteed unique by hole number
                 localCard.holeScores = mergedByHole.values.sorted { $0.holeNumber < $1.holeNumber }
                 localCard.courseHandicap = cloudCard.courseHandicap
+                // Sticky bit: if any side flagged the card as imported, keep it flagged. Otherwise
+                // a fresh authoritative pass over the same card could silently re-enable putts metrics
+                // for OCR-derived data.
+                if cloudCard.puttsImported { localCard.puttsImported = true }
                 // Only mark complete if cloud says so AND we have all holes
                 if cloudCard.isComplete {
                     localCard.isComplete = true
@@ -665,7 +670,8 @@ class AppState {
                     player: localTrip.players.first { $0.id == cloudCard.player?.id },
                     holeScores: deduped.values.sorted { $0.holeNumber < $1.holeNumber },
                     courseHandicap: cloudCard.courseHandicap,
-                    isComplete: cloudCard.isComplete
+                    isComplete: cloudCard.isComplete,
+                    puttsImported: cloudCard.puttsImported
                 )
                 localRound.scorecards.append(newCard)
             }

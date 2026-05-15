@@ -219,6 +219,11 @@ struct SideGameEngine {
         if let round = scorecards.first?.round, !round.trackPutts {
             return []
         }
+        // Any card flagged as putts-imported (from photo OCR) has no authoritative putts data.
+        // If mixed in with manual cards, the imported ones would falsely "never 3-putt" — bail.
+        if scorecards.contains(where: { $0.puttsImported }) {
+            return []
+        }
         var results: [SideGameResult] = []
         var currentSnakeHolder: UUID?
 

@@ -305,6 +305,7 @@ actor CloudKitService {
                     let playerIdStr = dict["playerId"] as? String ?? ""
                     let courseHandicap = dict["courseHandicap"] as? Int ?? 0
                     let isComplete = dict["isComplete"] as? Bool ?? false
+                    let puttsImported = dict["puttsImported"] as? Bool ?? false
 
                     // Parse holeScores from the embedded JSON
                     var holeScores: [HoleScore] = []
@@ -320,7 +321,8 @@ actor CloudKitService {
                         player: UUID(uuidString: playerIdStr).flatMap { playerById[$0] },
                         holeScores: holeScores,
                         courseHandicap: courseHandicap,
-                        isComplete: isComplete
+                        isComplete: isComplete,
+                        puttsImported: puttsImported
                     )
                     round.scorecards.append(scorecard)
                 }
@@ -670,6 +672,7 @@ actor CloudKitService {
                 "playerId": card.player?.id.uuidString ?? "",
                 "courseHandicap": card.courseHandicap,
                 "isComplete": card.isComplete,
+                "puttsImported": card.puttsImported,
                 "holeScores": (try? JSONEncoder().encode(card.holeScores)).flatMap {
                     try? JSONSerialization.jsonObject(with: $0)
                 } ?? []
@@ -699,6 +702,7 @@ actor CloudKitService {
         record["playerId"] = (scorecard.player?.id.uuidString ?? "") as CKRecordValue
         record["courseHandicap"] = scorecard.courseHandicap as CKRecordValue
         record["isComplete"] = (scorecard.isComplete ? 1 : 0) as CKRecordValue
+        record["puttsImported"] = (scorecard.puttsImported ? 1 : 0) as CKRecordValue
         if let scoresData = try? JSONEncoder().encode(scorecard.holeScores) {
             record["holeScoresData"] = scoresData as CKRecordValue
         }

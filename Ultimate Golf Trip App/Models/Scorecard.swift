@@ -7,6 +7,11 @@ final class Scorecard {
     var holeScores: [HoleScore] = []
     var courseHandicap: Int = 0
     var isComplete: Bool = false
+    /// True when this scorecard's strokes came from a photo import (OCR). Putts couldn't be
+    /// extracted by the photo flow, so consumers (putts-based challenges, side games like Snake)
+    /// must treat this card as having no putts data — distinct from "round-level trackPutts off"
+    /// because other scorecards in the same round may still have authoritative putts.
+    var puttsImported: Bool = false
 
     // Relationships
     var round: Round?
@@ -18,7 +23,8 @@ final class Scorecard {
         player: Player? = nil,
         holeScores: [HoleScore] = [],
         courseHandicap: Int = 0,
-        isComplete: Bool = false
+        isComplete: Bool = false,
+        puttsImported: Bool = false
     ) {
         self.id = id
         self.round = round
@@ -26,6 +32,7 @@ final class Scorecard {
         self.holeScores = holeScores
         self.courseHandicap = courseHandicap
         self.isComplete = isComplete
+        self.puttsImported = puttsImported
     }
 
     // MARK: - Backward-compat UUID accessors

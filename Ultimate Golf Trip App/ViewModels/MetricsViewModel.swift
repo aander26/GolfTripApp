@@ -306,12 +306,12 @@ class ChallengesViewModel {
                 $0.isCompleted && (bet.useNetScoring ? $0.netScoreToPar <= -1 : $0.scoreToPar <= -1)
             }.count
         case .fewestPutts:
-            // A round that didn't track putts has all-zero putts data — return nil so the
-            // scorecard is excluded from the challenge rather than reported as the winner.
-            guard card.holesCompleted > 0, round.trackPutts else { return nil }
+            // Exclude cards with no putts data: either the whole round disabled putts, or this
+            // specific card came from a photo import (OCR doesn't capture putts).
+            guard card.holesCompleted > 0, round.trackPutts, !card.puttsImported else { return nil }
             return card.totalPutts
         case .fewest3Putts, .most3Putts:
-            guard card.holesCompleted > 0, round.trackPutts else { return nil }
+            guard card.holesCompleted > 0, round.trackPutts, !card.puttsImported else { return nil }
             return card.holeScores.filter { $0.isCompleted && $0.putts >= 3 }.count
         default:
             return nil

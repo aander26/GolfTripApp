@@ -33,6 +33,10 @@ struct ScorecardReviewView: View {
 
                 instructionsBanner
 
+                if viewModel.hasPlayingGroups {
+                    groupScopeBar
+                }
+
                 if let parsed = viewModel.parsed {
                     if parsed.rows.isEmpty {
                         emptyState
@@ -100,6 +104,49 @@ struct ScorecardReviewView: View {
     }
 
     // MARK: - Subviews
+
+    // MARK: - Group scope
+
+    /// Horizontal chip bar shown when the round has playing groups. Narrows the player
+    /// picker on every row to a single foursome so the user isn't paging through 12 names.
+    private var groupScopeBar: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Importing for")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(Theme.textSecondary)
+                .tracking(0.5)
+                .padding(.horizontal)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    chip(title: "All players",
+                         isSelected: viewModel.scopedGroupId == nil) {
+                        viewModel.setScopedGroup(nil)
+                    }
+                    ForEach(viewModel.playingGroups) { group in
+                        chip(title: group.name,
+                             isSelected: viewModel.scopedGroupId == group.id) {
+                            viewModel.setScopedGroup(group.id)
+                        }
+                    }
+                }
+                .padding(.horizontal)
+            }
+        }
+    }
+
+    private func chip(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(isSelected ? Theme.primary : Theme.cardBackground)
+                .foregroundStyle(isSelected ? Theme.textOnPrimary : Theme.textPrimary)
+                .clipShape(Capsule())
+                .overlay(Capsule().stroke(Theme.border, lineWidth: isSelected ? 0 : 1))
+        }
+        .buttonStyle(.plain)
+    }
 
     private var instructionsBanner: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -172,8 +219,10 @@ struct ScorecardReviewView: View {
             }
         } label: {
             HStack(spacing: 8) {
+                // Use the full round roster for the label lookup so out-of-scope assignments
+                // still render their name (the user just can't pick a new one without widening scope).
                 if let pid = assignedPlayerId,
-                   let player = viewModel.availablePlayers.first(where: { $0.id == pid }) {
+                   let player = viewModel.allRoundPlayers.first(where: { $0.id == pid }) {
                     Circle()
                         .fill(player.avatarColor.color)
                         .frame(width: 28, height: 28)
