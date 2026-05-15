@@ -773,6 +773,7 @@ actor CloudKitService {
         record["roundId"] = (sideGame.round?.id.uuidString ?? "") as CKRecordValue
         record["isPotGame"] = (sideGame.isPotGame ? 1 : 0) as CKRecordValue
         record["potWinnerId"] = (sideGame.potWinnerId?.uuidString ?? "") as CKRecordValue
+        record["playingGroupId"] = (sideGame.playingGroupId?.uuidString ?? "") as CKRecordValue
         if let resultsData = try? JSONEncoder().encode(sideGame.results) {
             record["resultsData"] = resultsData as CKRecordValue
         }
@@ -1025,6 +1026,7 @@ actor CloudKitService {
         )
         sideGame.isPotGame = (record["isPotGame"] as? Int64 ?? 0) == 1
         sideGame.potWinnerId = (record["potWinnerId"] as? String).flatMap { UUID(uuidString: $0) }
+        sideGame.playingGroupId = (record["playingGroupId"] as? String).flatMap { UUID(uuidString: $0) }
         return sideGame
         // Note: round relationship is stitched after fetch via roundId
     }

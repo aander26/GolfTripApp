@@ -15,6 +15,13 @@ struct SideGameDetailView: View {
             Section {
                 LabeledContent("Type", value: game.type.rawValue)
 
+                // Show the playing-group scope when one is set, so the user immediately knows
+                // this game is a per-foursome side game vs. a round-wide pool.
+                if let groupId = game.playingGroupId,
+                   let group = game.round?.playingGroups.first(where: { $0.id == groupId }) {
+                    LabeledContent("Group", value: group.name)
+                }
+
                 if game.isPotGame {
                     LabeledContent("Entry", value: "\(String(format: "%.0f", game.stakes)) pts/player")
                     HStack {

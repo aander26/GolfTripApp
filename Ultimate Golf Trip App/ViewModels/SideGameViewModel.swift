@@ -6,6 +6,9 @@ class SideGameViewModel {
 
     var selectedGameType: SideGameType = .skins
     var selectedRoundId: UUID?
+    /// When set, this game is scoped to a single playing group (foursome) within the round.
+    /// Surfaces a "Group X" picker on the create-game form when the round has groups configured.
+    var selectedPlayingGroupId: UUID?
     var selectedParticipantIds: Set<UUID> = []
     var stakesAmount: String = ""
     var designatedHoles: Set<Int> = []
@@ -36,13 +39,20 @@ class SideGameViewModel {
         let round = selectedRoundId.flatMap { roundId in
             trip.rounds.first { $0.id == roundId }
         }
+        // Validate that the playing group (if set) belongs to the chosen round.
+        let validGroupId: UUID? = {
+            guard let groupId = selectedPlayingGroupId, let round else { return nil }
+            return round.playingGroups.contains(where: { $0.id == groupId }) ? groupId : nil
+        }()
+
         let game = SideGame(
             type: selectedGameType,
             round: round,
             participantIds: Array(selectedParticipantIds),
             stakes: stakes,
             designatedHoles: Array(designatedHoles).sorted(),
-            isPotGame: isPotGame
+            isPotGame: isPotGame,
+            playingGroupId: validGroupId
         )
         game.trip = trip
         trip.sideGames.append(game)
@@ -58,15 +68,27 @@ class SideGameViewModel {
               let round = game.round,
               let course = round.course else { return }
 
+        // Effective participants: intersect the game's stored participants with the playing
+        // group (if scoped). Lets one round host multiple separate skins games — one per
+        // foursome — without pooling everyone into the same pot.
+        let effectiveIds: Set<UUID> = {
+            let baseline = Set(game.participantIds)
+            guard let groupId = game.playingGroupId,
+                  let group = round.playingGroups.first(where: { $0.id == groupId }) else {
+                return baseline
+            }
+            return baseline.intersection(Set(group.playerIds))
+        }()
+
         let participantCards = round.scorecards.filter { card in
             guard let pid = card.player?.id else { return false }
-            return game.participantIds.contains(pid)
+            return effectiveIds.contains(pid)
         }
 
         // Process scorecards with handicap
         let processedRound = ScoringEngine.processRound(round: round, course: course)
         let processedCards = processedRound.scorecards.filter { card in
-            game.participantIds.contains(card.playerId)
+            effectiveIds.contains(card.playerId)
         }
 
         var results: [SideGameResult] = []
@@ -179,6 +201,7 @@ class SideGameViewModel {
     private func resetForm() {
         selectedGameType = .skins
         selectedRoundId = nil
+        selectedPlayingGroupId = nil
         selectedParticipantIds = []
         stakesAmount = ""
         designatedHoles = []

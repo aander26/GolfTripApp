@@ -81,6 +81,9 @@ struct HoleByHoleScoringView: View {
                 }
             )
 
+            // Live side-game state (skins carrying, snake holder, nassau status, etc.)
+            LiveSideGameStrip(round: round)
+
             // Player Scores
             ScrollView {
                 VStack(spacing: 12) {

@@ -51,6 +51,9 @@ struct QuickEntryView: View {
             // Live match status banner (hidden for non-match formats)
             LiveMatchStatusBanner(state: matchBannerState, totalHoles: course.holes.count)
 
+            // Live side-game state
+            LiveSideGameStrip(round: round)
+
             Spacer()
 
             if allPlayersScored {

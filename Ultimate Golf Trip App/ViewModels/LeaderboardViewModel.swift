@@ -75,6 +75,24 @@ class LeaderboardViewModel {
         return LeaderboardEngine.generateStablefordLeaderboard(trip: trip)
     }
 
+    // MARK: - Trip side games
+
+    /// Live summaries of active side games across the trip, computed on the fly from current
+    /// scorecards. Used by the Leaderboard's Trip Side Games section.
+    var tripSideGameSummaries: [TripSideGameSummary] {
+        guard let trip = currentTrip else { return [] }
+        return TripSideGameSummarizer.summarize(trip: trip)
+    }
+
+    // MARK: - Team matchup history
+
+    /// Head-to-head records for every team pair across all rounds. Empty when fewer than
+    /// two teams or no completed matches have happened.
+    var teamMatchupHistory: [TeamMatchupRecord] {
+        guard let trip = currentTrip else { return [] }
+        return TeamMatchupHistory.aggregate(trip: trip)
+    }
+
     // MARK: - Format presence helpers
 
     /// True when the trip contains at least one stroke-play round — the only format that

@@ -18,6 +18,11 @@ final class SideGame {
     /// The winner of a pool game (set when the pool is resolved).
     var potWinnerId: UUID?
 
+    /// Optional playing group this game is scoped to. When set, the engine filters
+    /// participating scorecards to that foursome — letting multiple separate skins games
+    /// (one per group) run side-by-side. Nil = trip/round-wide (existing behavior).
+    var playingGroupId: UUID?
+
     // Relationships
     var round: Round?
     @Relationship(inverse: \Trip.sideGames)
@@ -34,7 +39,8 @@ final class SideGame {
         isActive: Bool = true,
         designatedHoles: [Int] = [],
         isPotGame: Bool = false,
-        potWinnerId: UUID? = nil
+        potWinnerId: UUID? = nil,
+        playingGroupId: UUID? = nil
     ) {
         self.id = id
         self.typeRaw = type.rawValue
@@ -47,6 +53,7 @@ final class SideGame {
         self.designatedHoles = designatedHoles
         self.isPotGame = isPotGame
         self.potWinnerId = potWinnerId
+        self.playingGroupId = playingGroupId
     }
 
     // MARK: - Computed Properties

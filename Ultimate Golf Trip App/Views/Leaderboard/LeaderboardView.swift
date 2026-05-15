@@ -114,6 +114,21 @@ struct LeaderboardView: View {
                         }
                     }
 
+                    let sideGameSummaries = viewModel.tripSideGameSummaries
+                    if !sideGameSummaries.isEmpty {
+                        Section {
+                            ForEach(sideGameSummaries) { summary in
+                                tripSideGameRow(summary)
+                            }
+                        } header: {
+                            Text("Trip Side Games").sectionHeader()
+                        } footer: {
+                            Text("Current live state for each active side game. Tap to open the round's scorecard for details.")
+                                .font(.caption2)
+                                .foregroundStyle(Theme.textSecondary)
+                        }
+                    }
+
                     Section {
                         SyncStatusFooter(
                             isSyncing: viewModel.appState.isCurrentlySyncing,
@@ -210,6 +225,22 @@ struct LeaderboardView: View {
                         }
                     }
 
+                    // Matchup history — head-to-head across all completed matches.
+                    let history = viewModel.teamMatchupHistory
+                    if !history.isEmpty {
+                        Section {
+                            ForEach(history) { record in
+                                matchupHistoryRow(record)
+                            }
+                        } header: {
+                            Text("Matchup History")
+                        } footer: {
+                            Text("Cumulative head-to-head record across every completed match (singles, traditional match play, and 4-ball best ball).")
+                                .font(.caption2)
+                                .foregroundStyle(Theme.textSecondary)
+                        }
+                    }
+
                     // Per-Round Match Results
                     Section("Round Results") {
                         if viewModel.teamMatchResults.isEmpty {
@@ -293,6 +324,74 @@ struct LeaderboardView: View {
     }
 
     // MARK: - Helpers
+
+    private func matchupHistoryRow(_ record: TeamMatchupRecord) -> some View {
+        HStack(spacing: 10) {
+            // Two team badges side by side.
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(record.team1Name)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(record.team1Leads ? Theme.primary : Theme.textPrimary)
+                    Text("vs")
+                        .font(.caption2)
+                        .foregroundStyle(Theme.textSecondary)
+                    Text(record.team2Name)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(!record.team1Leads && !record.isTied ? Theme.primary : Theme.textPrimary)
+                }
+                Text(scoreLabel(for: record))
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(Theme.textSecondary)
+                    .monospacedDigit()
+            }
+            Spacer()
+            if record.isTied {
+                Text("TIED")
+                    .font(.caption2.weight(.heavy))
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(Theme.warning.opacity(0.18))
+                    .foregroundStyle(Theme.warning)
+                    .clipShape(Capsule())
+            } else {
+                Text(record.team1Leads ? "▲ \(record.team1Name)" : "▲ \(record.team2Name)")
+                    .font(.caption2.weight(.heavy))
+                    .padding(.horizontal, 8).padding(.vertical, 3)
+                    .background(Theme.success.opacity(0.18))
+                    .foregroundStyle(Theme.success)
+                    .clipShape(Capsule())
+            }
+        }
+    }
+
+    private func scoreLabel(for record: TeamMatchupRecord) -> String {
+        // "3-1-1" with a separator hint
+        "\(record.team1Wins) - \(record.team2Wins) - \(record.halves) H"
+    }
+
+    private func tripSideGameRow(_ summary: TripSideGameSummary) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: summary.iconName)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Theme.primary)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 4) {
+                    Text(summary.gameTitle)
+                        .font(.subheadline.weight(.bold))
+                    Text("· \(summary.scopeLabel)")
+                        .font(.caption2)
+                        .foregroundStyle(Theme.textSecondary)
+                        .lineLimit(1)
+                }
+                Text(summary.statusLine)
+                    .font(.caption)
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            Spacer()
+        }
+        .padding(.vertical, 2)
+    }
 
     private var leaderboardHeader: some View {
         HStack {

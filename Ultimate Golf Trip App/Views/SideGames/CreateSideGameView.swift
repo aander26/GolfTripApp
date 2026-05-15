@@ -31,6 +31,42 @@ struct CreateSideGameView: View {
                                 Text("R\(index + 1): \(courseName)").tag(Optional(round.id))
                             }
                         }
+                        .onChange(of: viewModel.selectedRoundId) { _, _ in
+                            // Switching rounds clears the group selection — the new round
+                            // may have entirely different groups (or none).
+                            viewModel.selectedPlayingGroupId = nil
+                        }
+                    }
+
+                    // Playing Group — only shown when the picked round has groups configured.
+                    if let roundId = viewModel.selectedRoundId,
+                       let round = trip.rounds.first(where: { $0.id == roundId }),
+                       !round.playingGroups.isEmpty {
+                        Section {
+                            Picker("Scope to group", selection: $viewModel.selectedPlayingGroupId) {
+                                Text("All players in round").tag(UUID?.none)
+                                ForEach(round.playingGroups) { group in
+                                    Text(group.name).tag(Optional(group.id))
+                                }
+                            }
+                            if let groupId = viewModel.selectedPlayingGroupId,
+                               let group = round.playingGroups.first(where: { $0.id == groupId }) {
+                                Button {
+                                    // Pre-select the group's members as participants. The user
+                                    // can still add/remove from the Players section below.
+                                    viewModel.selectedParticipantIds = Set(group.playerIds)
+                                } label: {
+                                    Label("Use \(group.name) members (\(group.playerIds.count))",
+                                          systemImage: "person.3.fill")
+                                }
+                                .font(.subheadline)
+                            }
+                        } header: {
+                            Text("Playing Group")
+                        } footer: {
+                            Text("Optional. Run a separate side game inside one foursome — leave on “All players in round” to pool everyone into a single game.")
+                                .font(.caption2)
+                        }
                     }
                 }
 

@@ -777,6 +777,9 @@ class AppState {
                 localGame.isActive = cloudGame.isActive
                 localGame.results = cloudGame.results
                 localGame.designatedHoles = cloudGame.designatedHoles
+                localGame.isPotGame = cloudGame.isPotGame
+                localGame.potWinnerId = cloudGame.potWinnerId
+                localGame.playingGroupId = cloudGame.playingGroupId
                 if let cloudRound = cloudGame.round {
                     localGame.round = local.rounds.first { $0.id == cloudRound.id }
                 }
@@ -789,7 +792,10 @@ class AppState {
                     stakesLabel: cloudGame.stakesLabel,
                     results: cloudGame.results,
                     isActive: cloudGame.isActive,
-                    designatedHoles: cloudGame.designatedHoles
+                    designatedHoles: cloudGame.designatedHoles,
+                    isPotGame: cloudGame.isPotGame,
+                    potWinnerId: cloudGame.potWinnerId,
+                    playingGroupId: cloudGame.playingGroupId
                 )
                 if let cloudRound = cloudGame.round {
                     newGame.round = local.rounds.first { $0.id == cloudRound.id }
