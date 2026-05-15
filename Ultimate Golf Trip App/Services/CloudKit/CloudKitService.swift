@@ -636,6 +636,10 @@ actor CloudKitService {
            let ruleData = try? JSONEncoder().encode(rule) {
             record["teamScoringRuleData"] = ruleData as CKRecordValue
         }
+        if !course.preferredRowAssignments.isEmpty,
+           let assignmentsData = try? JSONEncoder().encode(course.preferredRowAssignments) {
+            record["preferredRowAssignmentsData"] = assignmentsData as CKRecordValue
+        }
         return record
     }
 
@@ -658,6 +662,7 @@ actor CloudKitService {
         record["format"] = round.format.rawValue as CKRecordValue
         record["playerIds"] = round.playerIds.map { $0.uuidString } as CKRecordValue
         record["isComplete"] = (round.isComplete ? 1 : 0) as CKRecordValue
+        record["trackPutts"] = (round.trackPutts ? 1 : 0) as CKRecordValue
         // Serialize scorecard hole scores as JSON
         let scorecardData = round.scorecards.map { card -> [String: Any] in
             [
@@ -675,6 +680,10 @@ actor CloudKitService {
         }
         if let pairingsData = try? JSONEncoder().encode(round.matchPairings) {
             record["matchPairingsData"] = pairingsData as CKRecordValue
+        }
+        if !round.playingGroups.isEmpty,
+           let groupsData = try? JSONEncoder().encode(round.playingGroups) {
+            record["playingGroupsData"] = groupsData as CKRecordValue
         }
         if let rule = round.teamScoringRule,
            let ruleData = try? JSONEncoder().encode(rule) {
@@ -853,7 +862,7 @@ actor CloudKitService {
         }
 
         let selectedTee = record["selectedTeeBoxName"] as? String
-        return Course(
+        let course = Course(
             id: UUID(uuidString: record.recordID.recordName) ?? UUID(),
             name: name,
             holes: holes,
@@ -867,6 +876,11 @@ actor CloudKitService {
             selectedTeeBoxName: (selectedTee?.isEmpty == true) ? nil : selectedTee,
             teamScoringRule: teamScoringRule
         )
+        if let assignmentsData = record["preferredRowAssignmentsData"] as? Data,
+           let assignments = try? JSONDecoder().decode([String: Int].self, from: assignmentsData) {
+            course.preferredRowAssignments = assignments
+        }
+        return course
     }
 
     private func recordToTeam(_ record: CKRecord) -> Team? {
@@ -892,10 +906,19 @@ actor CloudKitService {
             matchPairings = (try? JSONDecoder().decode([MatchPairing].self, from: pairingsData)) ?? []
         }
 
+        var playingGroups: [PlayingGroup] = []
+        if let groupsData = record["playingGroupsData"] as? Data {
+            playingGroups = (try? JSONDecoder().decode([PlayingGroup].self, from: groupsData)) ?? []
+        }
+
         var teamScoringRule: TeamScoringRule?
         if let ruleData = record["teamScoringRuleData"] as? Data {
             teamScoringRule = try? JSONDecoder().decode(TeamScoringRule.self, from: ruleData)
         }
+
+        // trackPutts defaults to true for backward compat — records from older app versions
+        // that didn't write the field should preserve the prior "always track" behavior.
+        let trackPutts = (record["trackPutts"] as? Int).map { $0 == 1 } ?? true
 
         let round = Round(
             id: UUID(uuidString: record.recordID.recordName) ?? UUID(),
@@ -903,7 +926,9 @@ actor CloudKitService {
             format: format,
             playerIds: playerIds,
             isComplete: (record["isComplete"] as? Int ?? 0) == 1,
-            matchPairings: matchPairings
+            matchPairings: matchPairings,
+            trackPutts: trackPutts,
+            playingGroups: playingGroups
         )
         round.teamScoringRule = teamScoringRule
         return round

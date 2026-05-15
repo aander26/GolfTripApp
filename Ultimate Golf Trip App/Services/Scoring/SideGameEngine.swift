@@ -213,6 +213,12 @@ struct SideGameEngine {
         holeCount: Int = 18
     ) -> [SideGameResult] {
         guard holeCount > 0 else { return [] }
+        // All scorecards in a single snake calculation belong to one round. If that round
+        // didn't track putts, every card has putts=0 and snake can't be scored — bail rather
+        // than silently producing no results that look like "no one 3-putted".
+        if let round = scorecards.first?.round, !round.trackPutts {
+            return []
+        }
         var results: [SideGameResult] = []
         var currentSnakeHolder: UUID?
 

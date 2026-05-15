@@ -71,10 +71,12 @@ final class Scorecard {
         holeScores.first { $0.holeNumber == number }
     }
 
-    func updateScore(forHole number: Int, strokes: Int, putts: Int = 0) {
+    func updateScore(forHole number: Int, strokes: Int, putts: Int = 0, editorPlayerId: UUID? = nil) {
         if let index = holeScores.firstIndex(where: { $0.holeNumber == number }) {
             holeScores[index].strokes = strokes
             holeScores[index].putts = putts
+            holeScores[index].lastEditedByPlayerId = editorPlayerId
+            holeScores[index].lastEditedAt = Date()
         }
     }
 
@@ -107,6 +109,11 @@ struct HoleScore: Identifiable, Codable, Hashable {
     var netStrokes: Int
     var strokesReceived: Int
     var putts: Int
+    /// Player.id of the person who last edited this hole, used to surface "Alex's phone just
+    /// updated hole 5" conflict info during multi-scorer rounds. Optional for backward compat.
+    var lastEditedByPlayerId: UUID?
+    /// Timestamp of the last edit, used to break merge ties and identify recent edits.
+    var lastEditedAt: Date?
 
     init(
         id: UUID = UUID(),
@@ -115,7 +122,9 @@ struct HoleScore: Identifiable, Codable, Hashable {
         strokes: Int = 0,
         netStrokes: Int = 0,
         strokesReceived: Int = 0,
-        putts: Int = 0
+        putts: Int = 0,
+        lastEditedByPlayerId: UUID? = nil,
+        lastEditedAt: Date? = nil
     ) {
         self.id = id
         self.holeNumber = holeNumber
@@ -124,6 +133,8 @@ struct HoleScore: Identifiable, Codable, Hashable {
         self.netStrokes = netStrokes
         self.strokesReceived = strokesReceived
         self.putts = putts
+        self.lastEditedByPlayerId = lastEditedByPlayerId
+        self.lastEditedAt = lastEditedAt
     }
 
     var scoreToPar: Int {

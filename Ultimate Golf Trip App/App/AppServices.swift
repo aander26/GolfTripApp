@@ -55,8 +55,18 @@ class AppState {
     var iCloudAvailable: Bool = false
     var lastSyncFailed: Bool = false
     var lastSyncError: String?
+    /// Timestamp of the last successful pull or push completion. Surface for "last synced Xs ago" UI.
+    var lastSyncCompletedAt: Date?
+    /// Public read-only view of whether a sync is currently in progress.
+    var isCurrentlySyncing: Bool { isSyncing }
     private var syncTasks: [UUID: Task<Void, Never>] = [:]
     private let syncDebounceSeconds: Double = 2.0
+
+    /// Active foreground polling timer, used while the user is viewing the active scorecard or leaderboard.
+    /// Ref-counted so transitions between views (e.g. leaderboard → player detail) don't tear down
+    /// the timer mid-flight.
+    private var activePollingTask: Task<Void, Never>?
+    private var activePollingRefCount: Int = 0
 
     // MARK: - SwiftData Persistence
 
@@ -253,6 +263,7 @@ class AppState {
             logger.info("☁️ Push succeeded for '\(trip.name)'")
             lastSyncFailed = false
             lastSyncError = nil
+            lastSyncCompletedAt = Date()
         } catch let ckError as CKError {
             logger.error("☁️ CloudKit push FAILED (CKError \(ckError.code.rawValue)): \(ckError.localizedDescription)")
             lastSyncFailed = true
@@ -299,6 +310,37 @@ class AppState {
         for trip in trips {
             await subscribeToTrip(trip)
         }
+
+        // Stamp completion even if there were no trips to sync — useful for surfacing
+        // "Synced Xs ago" when the trip list is empty during onboarding.
+        lastSyncCompletedAt = Date()
+    }
+
+    // MARK: - Active polling
+
+    /// Start polling CloudKit every `interval` seconds while the user is on a live surface
+    /// (active scorecard, leaderboard). Ref-counted: each call increments; `stopActivePolling`
+    /// decrements and only cancels when no callers remain.
+    func startActivePolling(interval: TimeInterval = 20) {
+        activePollingRefCount += 1
+        guard activePollingTask == nil else { return }
+        activePollingTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(interval))
+                if Task.isCancelled { return }
+                guard let self else { return }
+                guard self.iCloudAvailable else { continue }
+                await self.syncWithCloud()
+            }
+        }
+    }
+
+    /// Decrement the polling refcount; cancels the timer only when no callers remain.
+    func stopActivePolling() {
+        activePollingRefCount = max(0, activePollingRefCount - 1)
+        guard activePollingRefCount == 0 else { return }
+        activePollingTask?.cancel()
+        activePollingTask = nil
     }
 
     /// Called when a CloudKit remote notification arrives, indicating another
@@ -335,6 +377,7 @@ class AppState {
             logger.info("Pulled and merged cloud data for trip \(localTrip.name)")
             lastSyncFailed = false
             lastSyncError = nil
+            lastSyncCompletedAt = Date()
         } catch {
             logger.error("Pull failed for trip \(localTrip.name): \(error.localizedDescription)")
             lastSyncFailed = true
@@ -446,6 +489,13 @@ class AppState {
                 if let rule = cloudCourse.teamScoringRule {
                     localCourse.teamScoringRule = rule
                 }
+                // Merge row assignments rather than overwrite, so memory from each device survives.
+                if !cloudCourse.preferredRowAssignments.isEmpty {
+                    localCourse.preferredRowAssignments.merge(
+                        cloudCourse.preferredRowAssignments,
+                        uniquingKeysWith: { _, new in new }
+                    )
+                }
             } else {
                 let newCourse = Course(
                     id: cloudCourse.id,
@@ -457,6 +507,7 @@ class AppState {
                     state: cloudCourse.state,
                     teamScoringRule: cloudCourse.teamScoringRule
                 )
+                newCourse.preferredRowAssignments = cloudCourse.preferredRowAssignments
                 newCourse.trip = local
                 local.courses.append(newCourse)
             }
@@ -510,6 +561,8 @@ class AppState {
                     localRound.playerIds = cloudRound.playerIds
                     localRound.isComplete = cloudRound.isComplete
                     localRound.matchPairings = cloudRound.matchPairings
+                    localRound.trackPutts = cloudRound.trackPutts
+                    localRound.playingGroups = cloudRound.playingGroups
                     localRound.updatedAt = cloudRound.updatedAt
                     // Preserve round-level scoring rule from cloud
                     if let cloudRule = cloudRound.teamScoringRule {
@@ -529,7 +582,9 @@ class AppState {
                     format: cloudRound.format,
                     playerIds: cloudRound.playerIds,
                     isComplete: cloudRound.isComplete,
-                    matchPairings: cloudRound.matchPairings
+                    matchPairings: cloudRound.matchPairings,
+                    trackPutts: cloudRound.trackPutts,
+                    playingGroups: cloudRound.playingGroups
                 )
                 newRound.teamScoringRule = cloudRound.teamScoringRule
                 newRound.trip = local

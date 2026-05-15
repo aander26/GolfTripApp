@@ -369,9 +369,17 @@ struct CourseRowView: View {
 struct RoundRowView: View {
     let round: Round
     let courseName: String
+    /// Optional "Round N · 8:30 AM" pretext shown above the course name to disambiguate
+    /// multiple rounds on the same day.
+    var dayLabel: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
+            if let dayLabel, !dayLabel.isEmpty {
+                Text(dayLabel)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Theme.primary)
+            }
             HStack {
                 Text(courseName)
                     .font(.body)
@@ -394,7 +402,7 @@ struct RoundRowView: View {
             .foregroundStyle(.secondary)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(courseName), \(round.formattedDate), \(round.format.rawValue), \(round.playerIds.count) players, \(round.isComplete ? "completed" : "in progress")")
+        .accessibilityLabel("\(dayLabel.map { "\($0). " } ?? "")\(courseName), \(round.formattedDate), \(round.format.rawValue), \(round.playerIds.count) players, \(round.isComplete ? "completed" : "in progress")")
     }
 }
 

@@ -116,6 +116,9 @@ struct MatchPlayResult: Identifiable, Hashable {
     var holesRemaining: Int { totalHoles - holesPlayed }
     var isComplete: Bool { holesPlayed == totalHoles || margin > holesRemaining }
 
+    /// True when the leader is exactly as many holes up as remain — opponent must win out to halve.
+    var isDormie: Bool { !isComplete && margin > 0 && margin == holesRemaining }
+
     var statusText: String {
         if isComplete {
             return result

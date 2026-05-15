@@ -38,6 +38,16 @@ struct RoundSetupView: View {
                             .foregroundStyle(.secondary)
                     }
 
+                    // Putts Tracking
+                    Section {
+                        Toggle("Track Putts", isOn: $viewModel.trackPuttsForSetup)
+                        Text("When off, putts are hidden from the scorecard. Challenges that need putts data will still require entry.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } header: {
+                        Text("Putts")
+                    }
+
                     // Team Scoring Options (shown for team-based formats when teams exist)
                     if viewModel.selectedFormat.requiresTeams && !trip.teams.isEmpty {
                         Section {
@@ -151,6 +161,54 @@ struct RoundSetupView: View {
                         }
                     }
 
+                    // Match Pairings editor — only for match-play-flavored formats with teams.
+                    let showsPairings = viewModel.selectedFormat == .matchPlay &&
+                        !trip.teams.isEmpty &&
+                        viewModel.selectedPlayerIds.count >= 2
+                    if showsPairings {
+                        Section {
+                            matchPairingsSection(trip: trip)
+                        } header: {
+                            HStack {
+                                Text("Match Pairings")
+                                Spacer()
+                                if !viewModel.matchPairingsForSetup.isEmpty {
+                                    Button("Auto-pair") {
+                                        viewModel.matchPairingsForSetup = autoGeneratePairings(trip: trip)
+                                    }
+                                    .font(.caption)
+                                    .textCase(nil)
+                                }
+                            }
+                        } footer: {
+                            Text("Pair players from opposing teams. Leave blank to auto-pair by team roster order at round start.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    // Playing Groups (foursomes) — optional, surfaces when 5+ players selected
+                    // since fewer than that doesn't need grouping.
+                    if viewModel.selectedPlayerIds.count >= 5 {
+                        Section {
+                            playingGroupsSection(trip: trip)
+                        } header: {
+                            HStack {
+                                Text("Playing Groups")
+                                Spacer()
+                                if !viewModel.playingGroupsForSetup.isEmpty {
+                                    Button("Clear") { viewModel.playingGroupsForSetup = [] }
+                                        .font(.caption)
+                                        .textCase(nil)
+                                }
+                            }
+                        } footer: {
+                            Text("Optional. Split into foursomes if multiple groups will play at once — used to filter score entry and scope side games to a single on-course group.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
                     // Course Handicap Preview
                     if viewModel.selectedCourseId != nil && !viewModel.selectedPlayerIds.isEmpty {
                         Section("Course Handicaps") {
@@ -205,6 +263,213 @@ struct RoundSetupView: View {
 // MARK: - Subviews
 
 extension RoundSetupView {
+    @ViewBuilder
+    func matchPairingsSection(trip: Trip) -> some View {
+        let selectedPlayers = trip.players.filter { viewModel.selectedPlayerIds.contains($0.id) }
+        if viewModel.matchPairingsForSetup.isEmpty {
+            Button {
+                viewModel.matchPairingsForSetup = autoGeneratePairings(trip: trip)
+            } label: {
+                Label("Generate pairings", systemImage: "person.2.fill")
+            }
+        } else {
+            ForEach($viewModel.matchPairingsForSetup) { $pairing in
+                matchPairingRow(pairing: $pairing, players: selectedPlayers, teams: trip.teams)
+            }
+            Button(role: .destructive) {
+                viewModel.matchPairingsForSetup = []
+            } label: {
+                Label("Clear pairings", systemImage: "trash")
+                    .font(.caption)
+            }
+        }
+    }
+
+    fileprivate func autoGeneratePairings(trip: Trip) -> [MatchPairing] {
+        guard trip.teams.count >= 2 else { return [] }
+        let selectedIds = viewModel.selectedPlayerIds
+        var pairings: [MatchPairing] = []
+        let teamPairs = TeamMatchPlayEngine.generateTeamPairs(teams: trip.teams)
+        for (teamA, teamB) in teamPairs {
+            let aPlayers = trip.players.filter { $0.team?.id == teamA.id && selectedIds.contains($0.id) }
+            let bPlayers = trip.players.filter { $0.team?.id == teamB.id && selectedIds.contains($0.id) }
+            pairings.append(contentsOf: TeamMatchPlayEngine.generatePairings(team1Players: aPlayers, team2Players: bPlayers))
+        }
+        return pairings
+    }
+
+    @ViewBuilder
+    fileprivate func matchPairingRow(
+        pairing: Binding<MatchPairing>,
+        players: [Player],
+        teams: [Team]
+    ) -> some View {
+        HStack(spacing: 8) {
+            playerPickerForPairing(selection: pairing.player1Id, candidates: players, teams: teams)
+            Text("vs")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(Theme.textSecondary)
+            playerPickerForPairing(selection: pairing.player2Id, candidates: players, teams: teams)
+        }
+    }
+
+    fileprivate func playerPickerForPairing(
+        selection: Binding<UUID>,
+        candidates: [Player],
+        teams: [Team]
+    ) -> some View {
+        Menu {
+            ForEach(teams, id: \.id) { team in
+                let teamPlayers = candidates.filter { $0.team?.id == team.id }
+                if !teamPlayers.isEmpty {
+                    Section(team.name) {
+                        ForEach(teamPlayers) { p in
+                            Button(p.name) { selection.wrappedValue = p.id }
+                        }
+                    }
+                }
+            }
+            // Players not on a team (or whose team isn't shown above)
+            let unteamed = candidates.filter { p in
+                guard let tid = p.team?.id else { return true }
+                return !teams.contains(where: { $0.id == tid })
+            }
+            if !unteamed.isEmpty {
+                Section("Other") {
+                    ForEach(unteamed) { p in
+                        Button(p.name) { selection.wrappedValue = p.id }
+                    }
+                }
+            }
+        } label: {
+            let player = candidates.first { $0.id == selection.wrappedValue }
+            HStack(spacing: 6) {
+                if let player {
+                    Circle()
+                        .fill(player.avatarColor.color)
+                        .frame(width: 18, height: 18)
+                    Text(player.name).font(.caption.weight(.semibold)).lineLimit(1)
+                } else {
+                    Text("Pick player").font(.caption).foregroundStyle(Theme.textSecondary)
+                }
+                Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.cardBackground)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Theme.border, lineWidth: 1))
+        }
+    }
+
+    @ViewBuilder
+    func playingGroupsSection(trip: Trip) -> some View {
+        let selectedPlayers = trip.players.filter { viewModel.selectedPlayerIds.contains($0.id) }
+
+        if viewModel.playingGroupsForSetup.isEmpty {
+            Button {
+                viewModel.playingGroupsForSetup = autoSuggestGroups(for: selectedPlayers)
+            } label: {
+                Label("Auto-split into foursomes", systemImage: "person.3.fill")
+            }
+            Text("\(selectedPlayers.count) players → \((selectedPlayers.count + 3) / 4) groups of up to 4.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else {
+            ForEach($viewModel.playingGroupsForSetup) { $group in
+                playingGroupRow(group: $group, allPlayers: selectedPlayers)
+            }
+            Button {
+                viewModel.playingGroupsForSetup = autoSuggestGroups(for: selectedPlayers)
+            } label: {
+                Label("Reset groups", systemImage: "arrow.counterclockwise")
+                    .font(.caption)
+            }
+        }
+    }
+
+    /// Suggest groups of 4 in roster order. Leftovers go into the final smaller group.
+    fileprivate func autoSuggestGroups(for players: [Player]) -> [PlayingGroup] {
+        let chunkSize = 4
+        var groups: [PlayingGroup] = []
+        var index = 1
+        for chunk in stride(from: 0, to: players.count, by: chunkSize) {
+            let end = min(chunk + chunkSize, players.count)
+            let slice = players[chunk..<end]
+            groups.append(PlayingGroup(
+                name: "Group \(index)",
+                playerIds: slice.map(\.id)
+            ))
+            index += 1
+        }
+        return groups
+    }
+
+    @ViewBuilder
+    fileprivate func playingGroupRow(
+        group: Binding<PlayingGroup>,
+        allPlayers: [Player]
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                TextField("Group name", text: group.name)
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text("\(group.wrappedValue.playerIds.count) players")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            // Member chips. Tap to remove; menu adds available players from the round.
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(group.wrappedValue.playerIds, id: \.self) { pid in
+                        if let player = allPlayers.first(where: { $0.id == pid }) {
+                            Button {
+                                group.wrappedValue.playerIds.removeAll { $0 == pid }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text(player.name).font(.caption)
+                                    Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(player.avatarColor.color.opacity(0.18))
+                                .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
+                    let inAnyGroup = Set(viewModel.playingGroupsForSetup.flatMap { $0.playerIds })
+                    let unassigned = allPlayers.filter { !inAnyGroup.contains($0.id) }
+                    if !unassigned.isEmpty {
+                        Menu {
+                            ForEach(unassigned) { p in
+                                Button(p.name) {
+                                    group.wrappedValue.playerIds.append(p.id)
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "plus")
+                                Text("Add")
+                            }
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Theme.primaryMuted)
+                            .clipShape(Capsule())
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
     @ViewBuilder
     var ninesPointsFields: some View {
         HStack {

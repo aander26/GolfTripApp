@@ -23,6 +23,17 @@ class ScorecardViewModel {
     var showingPuttsRequiredAlert = false
     var showingMissingStrokesAlert = false
 
+    /// Whether to track putts in the round being set up. Defaults to true to preserve prior behavior.
+    var trackPuttsForSetup: Bool = true
+
+    /// Playing groups (foursomes) being configured for this round. Optional — empty means
+    /// "one big group of all players" and the round behaves like it does today.
+    var playingGroupsForSetup: [PlayingGroup] = []
+
+    /// Custom match-play pairings configured before the round starts. When empty, the engine
+    /// auto-pairs by team roster order.
+    var matchPairingsForSetup: [MatchPairing] = []
+
     // Team scoring options (configured during round setup)
     var selectedTeamScoringFormat: TeamScoringFormat = .traditionalMatchPlay
     var teamPointsPerWin: String = "1.0"
@@ -89,10 +100,28 @@ class ScorecardViewModel {
         let playerIds = Array(selectedPlayerIds)
         guard !playerIds.isEmpty else { return }
 
+        // Filter playing groups to players actually included in the round (in case the
+        // user toggled a player off after configuring groups).
+        let validGroups = playingGroupsForSetup
+            .map { group -> PlayingGroup in
+                var g = group
+                g.playerIds = g.playerIds.filter { playerIds.contains($0) }
+                return g
+            }
+            .filter { !$0.playerIds.isEmpty }
+
+        // Filter pairings to player IDs actually in the round.
+        let validPairings = matchPairingsForSetup.filter {
+            playerIds.contains($0.player1Id) && playerIds.contains($0.player2Id)
+        }
+
         let round = Round(
             course: course,
             format: selectedFormat,
-            playerIds: playerIds
+            playerIds: playerIds,
+            matchPairings: validPairings,
+            trackPutts: trackPuttsForSetup,
+            playingGroups: validGroups
         )
 
         let scorecards = playerIds.compactMap { playerId -> Scorecard? in
@@ -160,30 +189,44 @@ class ScorecardViewModel {
             scoreUpdateError = "Round not found. It may have been deleted."
             return false
         }
-        guard let card = round.scorecards.first(where: { $0.player?.id == playerId }) else {
-            scoreUpdateError = "Scorecard not found for this player."
-            return false
-        }
         guard let course = round.course else {
             scoreUpdateError = "No course assigned to this round."
             return false
         }
 
-        card.updateScore(
-            forHole: holeNumber,
-            strokes: strokes,
-            putts: putts
+        // Determine which scorecards to write to. For scramble, write the same score to all
+        // teammates' scorecards so the team-level result is consistent regardless of which
+        // player's card was tapped. For all other formats, write to the named player only.
+        let targetCards = scorecardsForScoreWrite(
+            playerId: playerId,
+            round: round,
+            trip: trip
         )
+        guard !targetCards.isEmpty else {
+            scoreUpdateError = "Scorecard not found for this player."
+            return false
+        }
 
-        // Recalculate net scores
-        let strokeMap = HandicapEngine.distributeStrokes(
-            courseHandicap: card.courseHandicap,
-            holes: course.holes
-        )
-        card.holeScores = HandicapEngine.calculateNetScores(
-            holeScores: card.holeScores,
-            strokeMap: strokeMap
-        )
+        // Tag the edit with the current user's player ID (if they have one) so other devices
+        // can show "Alex just updated hole 5" in conflict surfaces.
+        let editorPlayerId = appState.myPlayer(in: trip)?.id
+
+        for card in targetCards {
+            card.updateScore(
+                forHole: holeNumber,
+                strokes: strokes,
+                putts: putts,
+                editorPlayerId: editorPlayerId
+            )
+            let strokeMap = HandicapEngine.distributeStrokes(
+                courseHandicap: card.courseHandicap,
+                holes: course.holes
+            )
+            card.holeScores = HandicapEngine.calculateNetScores(
+                holeScores: card.holeScores,
+                strokeMap: strokeMap
+            )
+        }
 
         // Touch the round's updatedAt so merge conflict resolution prefers this version
         round.updatedAt = Date()
@@ -191,6 +234,31 @@ class ScorecardViewModel {
         appState.saveContext()
         scoreUpdateError = nil
         return true
+    }
+
+    /// For scramble rounds, returns scorecards for every teammate of the entered player
+    /// so the same score writes to all of them. For all other formats, returns just the
+    /// named player's scorecard.
+    private func scorecardsForScoreWrite(
+        playerId: UUID,
+        round: Round,
+        trip: Trip
+    ) -> [Scorecard] {
+        // Non-scramble: write to the named player's scorecard only.
+        guard round.format == .scramble,
+              let player = trip.player(withId: playerId),
+              let team = player.team else {
+            if let card = round.scorecards.first(where: { $0.player?.id == playerId }) {
+                return [card]
+            }
+            return []
+        }
+        // Scramble: every teammate participating in this round gets the same hole score.
+        let teammateIds = team.players.map(\.id).filter { round.playerIds.contains($0) }
+        return round.scorecards.filter { card in
+            guard let pid = card.player?.id else { return false }
+            return teammateIds.contains(pid)
+        }
     }
 
     func nextHole() {
@@ -329,6 +397,9 @@ class ScorecardViewModel {
         selectedCourseId = nil
         selectedFormat = .strokePlay
         selectedPlayerIds = []
+        trackPuttsForSetup = true
+        playingGroupsForSetup = []
+        matchPairingsForSetup = []
         selectedTeamScoringFormat = .traditionalMatchPlay
         teamPointsPerWin = "1.0"
         teamPointsPerHalve = "0.5"

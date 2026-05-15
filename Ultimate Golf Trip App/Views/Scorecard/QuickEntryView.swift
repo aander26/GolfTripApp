@@ -26,6 +26,18 @@ struct QuickEntryView: View {
         return players[currentPlayerIndex]
     }
 
+    /// Live match status — hidden for non-match formats and rounds without scores yet.
+    /// Personalized: the headline prefers the current user's pairing.
+    private var matchBannerState: LiveMatchBannerState {
+        guard let trip = viewModel.currentTrip else { return .hidden }
+        return LiveMatchStatusViewModel.state(
+            round: round,
+            trip: trip,
+            course: course,
+            currentPlayerId: viewModel.appState.myPlayer(in: trip)?.id
+        )
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Hole header
@@ -35,6 +47,9 @@ struct QuickEntryView: View {
             if let hole = currentHoleInfo {
                 holeInfoBar(hole: hole)
             }
+
+            // Live match status banner (hidden for non-match formats)
+            LiveMatchStatusBanner(state: matchBannerState, totalHoles: course.holes.count)
 
             Spacer()
 
@@ -56,6 +71,14 @@ struct QuickEntryView: View {
         .background(Theme.background)
         .animation(.easeInOut(duration: 0.2), value: showPuttsRow)
         .animation(.easeInOut(duration: 0.2), value: currentPlayerIndex)
+        .onAppear {
+            // Poll CloudKit every 20s while this view is on screen so the live banner /
+            // leaderboard reflect remote scorers without waiting for a silent push.
+            viewModel.appState.startActivePolling()
+        }
+        .onDisappear {
+            viewModel.appState.stopActivePolling()
+        }
         .onChange(of: viewModel.currentHole) { _, _ in
             resetForNewHole()
         }
@@ -495,8 +518,21 @@ struct QuickEntryView: View {
         lastThreshold = 0
 
         pendingStrokes = strokes
-        showPuttsRow = true
         showMorePutts = false
+
+        // If this round doesn't track putts (and no challenge requires them), skip the putts step
+        // and write the stroke total directly.
+        if shouldShowPuttsStep {
+            showPuttsRow = true
+        } else {
+            showPuttsRow = false
+            commitPutts(0)
+        }
+    }
+
+    /// Show the putts step when the round opts in OR an active challenge needs putts data.
+    private var shouldShowPuttsStep: Bool {
+        round.trackPutts || viewModel.puttsRequiredForCurrentRound
     }
 
     private func commitPutts(_ putts: Int) {

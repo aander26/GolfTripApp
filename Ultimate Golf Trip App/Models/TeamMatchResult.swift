@@ -231,6 +231,9 @@ struct TeamBestBallMatchResult: Identifiable, Hashable {
     var margin: Int { team1HolesWon - team2HolesWon }
     var holesRemaining: Int { totalHoles - holesPlayed }
 
+    /// True when the leader is exactly as many holes up as remain — opponent must win out to halve.
+    var isDormie: Bool { !isComplete && abs(margin) > 0 && abs(margin) == holesRemaining }
+
     var winningTeamId: UUID? {
         guard isComplete else { return nil }
         if team1HolesWon > team2HolesWon { return team1Id }

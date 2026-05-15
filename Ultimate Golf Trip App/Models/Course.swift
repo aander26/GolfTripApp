@@ -23,6 +23,10 @@ final class Course {
     /// Optional: nil means no team scoring assigned yet.
     var teamScoringRule: TeamScoringRule?
 
+    /// Remembered row assignments from photo-imported scorecards: `playerId.uuidString -> rowIndex (0-based)`.
+    /// Used to pre-populate row→player mapping the next time a card is imported for this course.
+    var preferredRowAssignments: [String: Int] = [:]
+
     // Relationships
     @Relationship(inverse: \Trip.courses)
     var trip: Trip?

@@ -39,6 +39,13 @@ struct LeaderboardView: View {
                     ContentUnavailableView("No Trip Selected", systemImage: "exclamationmark.triangle", description: Text("Select a trip to view player details."))
                 }
             }
+            .onAppear {
+                // Keep the leaderboard fresh while it's on screen.
+                viewModel.appState.startActivePolling()
+            }
+            .onDisappear {
+                viewModel.appState.stopActivePolling()
+            }
         }
     }
 
@@ -67,8 +74,19 @@ struct LeaderboardView: View {
                     } header: {
                         leaderboardHeader
                     }
+
+                    Section {
+                        SyncStatusFooter(
+                            isSyncing: viewModel.appState.isCurrentlySyncing,
+                            lastSyncCompletedAt: viewModel.appState.lastSyncCompletedAt,
+                            iCloudAvailable: viewModel.appState.iCloudAvailable,
+                            syncFailed: viewModel.appState.lastSyncFailed
+                        )
+                        .listRowBackground(Color.clear)
+                    }
                 }
                 .themedList()
+                .refreshable { await viewModel.appState.syncWithCloud() }
             }
         }
     }

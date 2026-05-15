@@ -9,6 +9,11 @@ final class Round {
     var playerIds: [UUID] = []
     var isComplete: Bool = false
 
+    /// Whether putts are tracked for this round. When false, the putts UI is hidden in scoring views
+    /// and the swipe-to-score flow skips the putts step. Challenges that require putts data
+    /// override this and force putts entry regardless.
+    var trackPutts: Bool = true
+
     /// Timestamp of last modification, used for merge conflict resolution.
     var updatedAt: Date = Date()
 
@@ -18,6 +23,11 @@ final class Round {
 
     /// Optional match pairings for team match play. When empty, engine auto-pairs by team roster order.
     var matchPairings: [MatchPairing] = []
+
+    /// Optional playing groups (foursomes). When non-empty, score entry filters to a single
+    /// group, side games scope per-group, and photo import maps to one group's card.
+    /// When empty, the round behaves as a single all-players group.
+    var playingGroups: [PlayingGroup] = []
 
     // Relationships
     var course: Course?
@@ -34,7 +44,9 @@ final class Round {
         playerIds: [UUID] = [],
         scorecards: [Scorecard] = [],
         isComplete: Bool = false,
-        matchPairings: [MatchPairing] = []
+        matchPairings: [MatchPairing] = [],
+        trackPutts: Bool = true,
+        playingGroups: [PlayingGroup] = []
     ) {
         self.id = id
         self.course = course
@@ -44,6 +56,18 @@ final class Round {
         self.scorecards = scorecards
         self.isComplete = isComplete
         self.matchPairings = matchPairings
+        self.trackPutts = trackPutts
+        self.playingGroups = playingGroups
+    }
+
+    // MARK: - Playing group helpers
+
+    /// True when the round has at least one playing group configured.
+    var hasPlayingGroups: Bool { !playingGroups.isEmpty }
+
+    /// The playing group containing the given player, if any.
+    func playingGroup(containing playerId: UUID) -> PlayingGroup? {
+        playingGroups.first { $0.playerIds.contains(playerId) }
     }
 
     // MARK: - Computed Properties

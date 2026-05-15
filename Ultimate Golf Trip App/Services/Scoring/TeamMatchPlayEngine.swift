@@ -383,6 +383,12 @@ struct TeamMatchPlayEngine {
     /// Calculate 4-ball best ball match play: each team's lowest net score per hole
     /// wins that hole (match play). Uses 90% handicap allowance with lowest-plays-scratch.
     /// Generates round-robin team matchups for N≥2 teams.
+    ///
+    /// **Multi-foursome (Ryder Cup) support:** when the round has playing groups that each
+    /// contain exactly 2 players from one team and 2 from another, the engine produces one
+    /// `TeamBestBallMatchResult` per group instead of one per team pair. This allows e.g.
+    /// 2 teams of 6 split into 3 separate 4-ball matches to score independently, with the
+    /// team-level points aggregated across all sub-matches via `bestBallMatchPlayPoints`.
     private static func calculateTeamBestBallRound(
         round: Round,
         course: Course,
@@ -390,6 +396,29 @@ struct TeamMatchPlayEngine {
         teams: [Team],
         scoringRule: TeamScoringRule
     ) -> RoundTeamMatchResult {
+        // Multi-foursome path: derive sub-matches from playing groups if they cleanly partition
+        // into 2-vs-2 (team A vs team B) splits.
+        if !round.playingGroups.isEmpty,
+           let subMatches = deriveSubMatchesFromGroups(round: round, players: players) {
+            let bestBallMatches: [TeamBestBallMatchResult] = subMatches.compactMap { sm in
+                computeBestBallMatch(
+                    teamA: sm.teamA,
+                    teamAPlayers: sm.teamAPlayers,
+                    teamB: sm.teamB,
+                    teamBPlayers: sm.teamBPlayers,
+                    round: round,
+                    course: course
+                )
+            }
+            return RoundTeamMatchResult(
+                id: round.id,
+                roundLabel: course.name,
+                courseName: course.name,
+                scoringRule: scoringRule,
+                bestBallMatches: bestBallMatches
+            )
+        }
+
         let teamPairs = generateTeamPairs(teams: teams)
         let totalHoles = course.holes.count
 
@@ -403,86 +432,18 @@ struct TeamMatchPlayEngine {
                 .filter { $0.team?.id == teamB.id }
                 .filter { round.playerIds.contains($0.id) }
 
-            let allPlayers = teamAPlayers + teamBPlayers
-            guard !allPlayers.isEmpty else { continue }
-
-            // Step 1: Get course handicaps and apply 90% allowance
-            let adjustedHandicaps: [(Player, Int)] = allPlayers.map { player in
-                let courseHcap = round.scorecard(forPlayer: player.id)?.courseHandicap ?? 0
-                let adjusted = HandicapEngine.bestBallHandicap(courseHandicap: courseHcap, allowancePercentage: 0.9)
-                return (player, adjusted)
+            if let match = computeBestBallMatch(
+                teamA: teamA,
+                teamAPlayers: teamAPlayers,
+                teamB: teamB,
+                teamBPlayers: teamBPlayers,
+                round: round,
+                course: course
+            ) {
+                bestBallMatches.append(match)
             }
-
-            // Step 2: Lowest plays scratch — subtract the minimum from everyone
-            let lowestAdj = adjustedHandicaps.map(\.1).min() ?? 0
-            let strokesByPlayer: [UUID: [Int: Int]] = Dictionary(uniqueKeysWithValues:
-                adjustedHandicaps.map { (player, adj) in
-                    let netStrokes = adj - lowestAdj
-                    let strokeMap = HandicapEngine.distributeStrokes(courseHandicap: netStrokes, holes: course.holes)
-                    return (player.id, strokeMap)
-                }
-            )
-
-            // Step 3: Play each hole — best net from each team, match play scoring
-            var team1Wins = 0
-            var team2Wins = 0
-            var holesPlayed = 0
-
-            for hole in course.holes {
-                // Get best net for Team A
-                let teamANets: [Int] = teamAPlayers.compactMap { player in
-                    guard let card = round.scorecard(forPlayer: player.id),
-                          let score = card.score(forHole: hole.number),
-                          score.isCompleted else { return nil }
-                    let strokes = strokesByPlayer[player.id]?[hole.number] ?? 0
-                    return score.strokes - strokes
-                }
-
-                let teamBNets: [Int] = teamBPlayers.compactMap { player in
-                    guard let card = round.scorecard(forPlayer: player.id),
-                          let score = card.score(forHole: hole.number),
-                          score.isCompleted else { return nil }
-                    let strokes = strokesByPlayer[player.id]?[hole.number] ?? 0
-                    return score.strokes - strokes
-                }
-
-                // If neither team has scores, hole hasn't been played yet — skip
-                guard !teamANets.isEmpty || !teamBNets.isEmpty else { continue }
-
-                holesPlayed += 1
-
-                // If only one team has scores, that team wins the hole (opponent has no valid score)
-                if let bestA = teamANets.min(), let bestB = teamBNets.min() {
-                    if bestA < bestB {
-                        team1Wins += 1
-                    } else if bestB < bestA {
-                        team2Wins += 1
-                    }
-                } else if teamANets.min() != nil {
-                    team1Wins += 1  // Only team A has scores
-                } else {
-                    team2Wins += 1  // Only team B has scores
-                }
-
-                // Early termination: if margin exceeds remaining holes
-                let margin = abs(team1Wins - team2Wins)
-                let remaining = totalHoles - holesPlayed
-                if margin > remaining { break }
-            }
-
-            bestBallMatches.append(TeamBestBallMatchResult(
-                team1Id: teamA.id,
-                team2Id: teamB.id,
-                team1Name: teamA.name,
-                team2Name: teamB.name,
-                team1Color: teamA.color,
-                team2Color: teamB.color,
-                team1HolesWon: team1Wins,
-                team2HolesWon: team2Wins,
-                holesPlayed: holesPlayed,
-                totalHoles: totalHoles
-            ))
         }
+        _ = totalHoles   // hint: `totalHoles` is used inside computeBestBallMatch via course.holes.count
 
         return RoundTeamMatchResult(
             id: round.id,
@@ -491,6 +452,131 @@ struct TeamMatchPlayEngine {
             scoringRule: scoringRule,
             bestBallMatches: bestBallMatches
         )
+    }
+
+    /// Compute a single 4-ball best-ball match result for two sets of players from opposing teams.
+    /// Shared by the legacy per-team-pair path and the multi-foursome (Ryder Cup) path.
+    private static func computeBestBallMatch(
+        teamA: Team,
+        teamAPlayers: [Player],
+        teamB: Team,
+        teamBPlayers: [Player],
+        round: Round,
+        course: Course
+    ) -> TeamBestBallMatchResult? {
+        let totalHoles = course.holes.count
+        let allPlayers = teamAPlayers + teamBPlayers
+        guard !allPlayers.isEmpty else { return nil }
+
+        // Step 1: Apply 90% allowance to each player's course handicap.
+        let adjustedHandicaps: [(Player, Int)] = allPlayers.map { player in
+            let courseHcap = round.scorecard(forPlayer: player.id)?.courseHandicap ?? 0
+            let adjusted = HandicapEngine.bestBallHandicap(courseHandicap: courseHcap, allowancePercentage: 0.9)
+            return (player, adjusted)
+        }
+
+        // Step 2: Lowest plays scratch — subtract the minimum from everyone.
+        let lowestAdj = adjustedHandicaps.map(\.1).min() ?? 0
+        let strokesByPlayer: [UUID: [Int: Int]] = Dictionary(uniqueKeysWithValues:
+            adjustedHandicaps.map { (player, adj) in
+                let netStrokes = adj - lowestAdj
+                let strokeMap = HandicapEngine.distributeStrokes(courseHandicap: netStrokes, holes: course.holes)
+                return (player.id, strokeMap)
+            }
+        )
+
+        // Step 3: Play each hole — best net from each team, match play scoring.
+        var team1Wins = 0
+        var team2Wins = 0
+        var holesPlayed = 0
+
+        for hole in course.holes {
+            let teamANets: [Int] = teamAPlayers.compactMap { player in
+                guard let card = round.scorecard(forPlayer: player.id),
+                      let score = card.score(forHole: hole.number),
+                      score.isCompleted else { return nil }
+                let strokes = strokesByPlayer[player.id]?[hole.number] ?? 0
+                return score.strokes - strokes
+            }
+            let teamBNets: [Int] = teamBPlayers.compactMap { player in
+                guard let card = round.scorecard(forPlayer: player.id),
+                      let score = card.score(forHole: hole.number),
+                      score.isCompleted else { return nil }
+                let strokes = strokesByPlayer[player.id]?[hole.number] ?? 0
+                return score.strokes - strokes
+            }
+            guard !teamANets.isEmpty || !teamBNets.isEmpty else { continue }
+            holesPlayed += 1
+
+            if let bestA = teamANets.min(), let bestB = teamBNets.min() {
+                if bestA < bestB { team1Wins += 1 }
+                else if bestB < bestA { team2Wins += 1 }
+            } else if teamANets.min() != nil {
+                team1Wins += 1
+            } else {
+                team2Wins += 1
+            }
+
+            let margin = abs(team1Wins - team2Wins)
+            let remaining = totalHoles - holesPlayed
+            if margin > remaining { break }
+        }
+
+        return TeamBestBallMatchResult(
+            team1Id: teamA.id,
+            team2Id: teamB.id,
+            team1Name: teamA.name,
+            team2Name: teamB.name,
+            team1Color: teamA.color,
+            team2Color: teamB.color,
+            team1HolesWon: team1Wins,
+            team2HolesWon: team2Wins,
+            holesPlayed: holesPlayed,
+            totalHoles: totalHoles
+        )
+    }
+
+    // MARK: - Sub-match derivation
+
+    /// A 4-ball sub-match derived from a single playing group: two players from team A vs two from team B.
+    private struct DerivedSubMatch {
+        let teamA: Team
+        let teamAPlayers: [Player]
+        let teamB: Team
+        let teamBPlayers: [Player]
+    }
+
+    /// Derive sub-matches from the round's playing groups when each group cleanly partitions
+    /// into N players from one team and N from another (typically 2-vs-2). Returns nil if any
+    /// group can't be partitioned — the caller falls back to the legacy per-team-pair logic.
+    private static func deriveSubMatchesFromGroups(
+        round: Round,
+        players: [Player]
+    ) -> [DerivedSubMatch]? {
+        var subMatches: [DerivedSubMatch] = []
+        for group in round.playingGroups {
+            let groupPlayers = players.filter { group.playerIds.contains($0.id) }
+            // Group by team.
+            let teamsInGroup = Dictionary(grouping: groupPlayers) { $0.team?.id }
+            // Must have exactly 2 teams represented (nil-team players disqualify the group).
+            let validTeams = teamsInGroup.filter { $0.key != nil }
+            guard validTeams.count == 2,
+                  groupPlayers.count == validTeams.values.map(\.count).reduce(0, +) else {
+                return nil
+            }
+            let sides = validTeams.values.map { $0 }
+            // Both sides must have at least 1 player; symmetric 1v1 or 2v2 etc. all work.
+            guard sides.allSatisfy({ !$0.isEmpty }),
+                  let teamA = sides[0].first?.team,
+                  let teamB = sides[1].first?.team else { return nil }
+            subMatches.append(DerivedSubMatch(
+                teamA: teamA,
+                teamAPlayers: sides[0],
+                teamB: teamB,
+                teamBPlayers: sides[1]
+            ))
+        }
+        return subMatches.isEmpty ? nil : subMatches
     }
 
     // MARK: - Match Play with Nines (Traditional & Singles)

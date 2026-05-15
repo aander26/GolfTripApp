@@ -11,6 +11,48 @@ struct HoleByHoleScoringView: View {
         course.holes.first { $0.number == viewModel.currentHole }
     }
 
+    /// In scramble mode, replace the per-player name with the team name so the row reads as
+    /// the team's card, not "Alex's card." Non-scramble rounds use the player's name.
+    private func scrambleRowName(for player: Player) -> String? {
+        guard round.format == .scramble, let teamName = player.team?.name else { return nil }
+        return teamName
+    }
+
+    /// For scramble rounds, render one row per team (using the first teammate as a stand-in)
+    /// so the scorer enters a single team score that mirrors to all teammates.
+    private var displayPlayers: [Player] {
+        guard round.format == .scramble else { return players }
+        var seenTeams: Set<UUID> = []
+        return players.reduce(into: [Player]()) { acc, player in
+            if let teamId = player.team?.id {
+                if !seenTeams.contains(teamId) {
+                    seenTeams.insert(teamId)
+                    acc.append(player)
+                }
+            } else {
+                // Players without a team still get their own row.
+                acc.append(player)
+            }
+        }
+    }
+
+    /// Show the putts UI when either the round opts in OR an active challenge needs putts data.
+    private var showsPutts: Bool {
+        round.trackPutts || viewModel.puttsRequiredForCurrentRound
+    }
+
+    /// Live match status — hidden for non-match formats and rounds without scores yet.
+    /// Personalized: the headline prefers the current user's pairing.
+    private var matchBannerState: LiveMatchBannerState {
+        guard let trip = viewModel.currentTrip else { return .hidden }
+        return LiveMatchStatusViewModel.state(
+            round: round,
+            trip: trip,
+            course: course,
+            currentPlayerId: viewModel.appState.myPlayer(in: trip)?.id
+        )
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Hole Navigation Header
@@ -21,16 +63,21 @@ struct HoleByHoleScoringView: View {
                 holeInfoBar(hole: hole)
             }
 
+            // Live match status banner (hidden for non-match formats)
+            LiveMatchStatusBanner(state: matchBannerState, totalHoles: course.holes.count)
+
             // Player Scores
             ScrollView {
                 VStack(spacing: 12) {
-                    ForEach(players) { player in
+                    ForEach(displayPlayers) { player in
                         PlayerScoreCard(
                             player: player,
                             holeNumber: viewModel.currentHole,
                             score: viewModel.scoreForPlayer(player.id, roundId: round.id, holeNumber: viewModel.currentHole),
+                            showsPutts: showsPutts,
                             puttsRequired: isReadOnly ? false : viewModel.puttsRequiredForCurrentRound,
                             isReadOnly: isReadOnly,
+                            displayName: scrambleRowName(for: player),
                             onScoreChanged: { strokes, putts in
                                 viewModel.updateScore(
                                     roundId: round.id,
@@ -51,6 +98,16 @@ struct HoleByHoleScoringView: View {
 
             // Navigation Buttons
             navigationBar
+        }
+        .onAppear {
+            // Poll CloudKit every 20s while this view is on screen so the live banner /
+            // leaderboard reflect remote scorers without waiting for a silent push.
+            if !isReadOnly {
+                viewModel.appState.startActivePolling()
+            }
+        }
+        .onDisappear {
+            viewModel.appState.stopActivePolling()
         }
         .sheet(isPresented: $viewModel.showingRoundComplete) {
             RoundCompleteSheet(viewModel: viewModel, round: round, course: course, players: players)
@@ -228,8 +285,12 @@ struct PlayerScoreCard: View {
     let player: Player
     let holeNumber: Int
     let score: HoleScore?
+    var showsPutts: Bool = true
     var puttsRequired: Bool = false
     var isReadOnly: Bool = false
+    /// Optional override for the displayed name (used for scramble rounds where one row
+    /// represents a whole team, not a single player).
+    var displayName: String? = nil
     let onScoreChanged: (Int, Int) -> Void
 
     @State private var strokes: Int = 0
@@ -251,7 +312,7 @@ struct PlayerScoreCard: View {
                     .accessibilityHidden(true)
 
                 VStack(alignment: .leading) {
-                    Text(player.name)
+                    Text(displayName ?? player.name)
                         .font(.headline)
                     if let score = score, score.strokesReceived > 0 {
                         Text("+\(score.strokesReceived) stroke\(score.strokesReceived > 1 ? "s" : "")")
@@ -345,6 +406,7 @@ struct PlayerScoreCard: View {
                     }
                 }
 
+                if showsPutts {
                 Divider()
                     .frame(height: 50)
 
@@ -398,6 +460,7 @@ struct PlayerScoreCard: View {
                         .accessibilityHint("Current putts: \(putts)")
                     }
                 }
+                } // end if showsPutts
             }
             } // end else (editable mode)
         }
