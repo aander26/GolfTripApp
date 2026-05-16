@@ -125,9 +125,9 @@ struct PollOptionRow: View {
                             }
                             ForEach(Array(voters.prefix(5))) { voter in
                                 Text(voter.initials)
-                                    .font(.system(size: 7, weight: .bold))
+                                    .font(.caption2.weight(.bold))
                                     .foregroundStyle(.white)
-                                    .frame(width: 18, height: 18)
+                                    .frame(width: 22, height: 22)
                                     .background(voter.avatarColor.color)
                                     .clipShape(Circle())
                                     .overlay(Circle().stroke(Theme.cardBackground, lineWidth: 2))

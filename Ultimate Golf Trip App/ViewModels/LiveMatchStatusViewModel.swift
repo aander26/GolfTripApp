@@ -211,9 +211,12 @@ enum LiveMatchStatusViewModel {
             }
         }()
 
-        let primary = headline?.statusText.isEmpty == false
-            ? "\(headline!.leftLabel) vs \(headline!.rightLabel): \(headline!.statusText)"
-            : "Match in progress"
+        let primary: String = {
+            if let h = headline, !h.statusText.isEmpty {
+                return "\(h.leftLabel) vs \(h.rightLabel): \(h.statusText)"
+            }
+            return "Match in progress"
+        }()
         let secondary: String? = {
             if let h = headline, h.isDormie { return "DORMIE" }
             return nil

@@ -154,9 +154,9 @@ struct SettlementView: View {
                     // Gross/Net badge for round-based challenge types
                     if bet.gameType.contains("(Net)") {
                         Text("NET")
-                            .font(.system(size: 7, weight: .bold))
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
+                            .font(.caption2.weight(.bold))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 2)
                             .background(Color.blue.opacity(0.15))
                             .foregroundStyle(.blue)
                             .clipShape(Capsule())
@@ -201,7 +201,7 @@ struct SettlementView: View {
                     // Gross/Net badge for round-based challenges
                     if breakdown.gameType.contains("(Net)") {
                         Text("NET")
-                            .font(.system(size: 8, weight: .bold))
+                            .font(.caption2.weight(.bold))
                             .padding(.horizontal, 5)
                             .padding(.vertical, 2)
                             .background(Color.blue.opacity(0.15))
@@ -209,7 +209,7 @@ struct SettlementView: View {
                             .clipShape(Capsule())
                     } else if breakdown.gameType.contains("Round") || breakdown.gameType.contains("Head-to-Head") {
                         Text("GROSS")
-                            .font(.system(size: 8, weight: .bold))
+                            .font(.caption2.weight(.bold))
                             .padding(.horizontal, 5)
                             .padding(.vertical, 2)
                             .background(Color.green.opacity(0.15))
@@ -255,8 +255,9 @@ struct SettlementView: View {
                                     .font(.caption)
                                 if playerId == winnerId {
                                     Image(systemName: "trophy.fill")
-                                        .font(.system(size: 8))
+                                        .font(.caption2)
                                         .foregroundStyle(Theme.warning)
+                                        .accessibilityHidden(true)
                                 }
                                 Spacer()
                                 if bet.useNetScoring {

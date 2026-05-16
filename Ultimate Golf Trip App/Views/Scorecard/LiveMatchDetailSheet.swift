@@ -190,10 +190,10 @@ struct LiveMatchDetailSheet: View {
         let result = pairing.holeResults[hole] ?? .notPlayed
         return VStack(spacing: 0) {
             Text("\(hole)")
-                .font(.system(size: 9))
+                .font(.caption2)
                 .foregroundStyle(Theme.textSecondary)
             Text(symbolFor(result))
-                .font(.system(size: 13, weight: .bold))
+                .font(.caption.weight(.bold))
                 .foregroundStyle(colorFor(result))
         }
         .frame(maxWidth: .infinity, minHeight: 30)

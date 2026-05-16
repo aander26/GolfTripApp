@@ -97,8 +97,11 @@ private struct PollOptionEditRow: View {
                 Button(action: onRemove) {
                     Image(systemName: "minus.circle.fill")
                         .foregroundStyle(Theme.error)
+                        .frame(minWidth: 44, minHeight: 44)
+                        .contentShape(Rectangle())
                 }
                 .buttonStyle(.borderless)
+                .accessibilityLabel("Remove option \(index + 1)")
             }
         }
     }

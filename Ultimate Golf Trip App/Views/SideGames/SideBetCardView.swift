@@ -120,7 +120,7 @@ struct SideBetCardView: View {
                                     .fill(.green)
                                     .frame(width: 5, height: 5)
                                 Text("LIVE")
-                                    .font(.system(size: 8, weight: .bold))
+                                    .font(.caption2.weight(.bold))
                                     .foregroundStyle(.green)
                             }
                         }
@@ -130,9 +130,10 @@ struct SideBetCardView: View {
                         HStack(spacing: 8) {
                             if standing.isLeader {
                                 Image(systemName: bet.isCompleted ? "trophy.fill" : "arrow.right")
-                                    .font(.system(size: 8))
+                                    .font(.caption2)
                                     .foregroundStyle(bet.isCompleted ? .yellow : Theme.primary)
                                     .frame(width: 10)
+                                    .accessibilityHidden(true)
                             } else {
                                 Spacer().frame(width: 10)
                             }

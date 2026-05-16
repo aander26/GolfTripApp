@@ -434,8 +434,9 @@ struct QuickEntryView: View {
                         .overlay {
                             if scored && index != currentPlayerIndex {
                                 Image(systemName: "checkmark")
-                                    .font(.system(size: 6, weight: .bold))
+                                    .font(.caption2.weight(.bold))
                                     .foregroundStyle(.white)
+                                    .imageScale(.small)
                             }
                         }
                 }

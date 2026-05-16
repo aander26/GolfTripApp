@@ -14,7 +14,22 @@ class ScorecardViewModel {
         }
     }
     var selectedPlayerIds: Set<UUID> = []
-    var selectedRoundId: UUID?
+    /// Backed by UserDefaults so the user stays inside the same active round after the phone
+    /// locks, the app backgrounds, or the device restarts mid-trip.
+    var selectedRoundId: UUID? = ScorecardViewModel.loadPersistedRoundId() {
+        didSet {
+            if let id = selectedRoundId {
+                UserDefaults.standard.set(id.uuidString, forKey: ScorecardViewModel.persistedRoundIdKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: ScorecardViewModel.persistedRoundIdKey)
+            }
+        }
+    }
+    private static let persistedRoundIdKey = "scorecardSelectedRoundId"
+    private static func loadPersistedRoundId() -> UUID? {
+        guard let s = UserDefaults.standard.string(forKey: persistedRoundIdKey) else { return nil }
+        return UUID(uuidString: s)
+    }
     /// When true, the user explicitly backed out to the rounds list; suppresses auto-selection of active rounds.
     var showingRoundsList = false
     var currentHole: Int = 1

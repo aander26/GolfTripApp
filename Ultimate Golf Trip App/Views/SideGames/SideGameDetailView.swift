@@ -54,8 +54,7 @@ struct SideGameDetailView: View {
                                 .frame(width: 32, height: 32)
                                 .overlay {
                                     Text(player.initials)
-                                        .font(.system(size: 11))
-                                        .fontWeight(.bold)
+                                        .font(.caption.weight(.bold))
                                         .foregroundStyle(.white)
                                 }
 
@@ -88,8 +87,7 @@ struct SideGameDetailView: View {
                                         .frame(width: 24, height: 24)
                                         .overlay {
                                             Text(player.initials)
-                                                .font(.system(size: 9))
-                                                .fontWeight(.bold)
+                                                .font(.caption2.weight(.bold))
                                                 .foregroundStyle(.white)
                                         }
                                 }

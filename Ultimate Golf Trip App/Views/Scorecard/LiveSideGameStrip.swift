@@ -66,10 +66,17 @@ struct LiveSideGameStrip: View {
 
     private func chip(for game: SideGame) -> some View {
         let state = LiveSideGameStateEngine.state(for: game, round: round)
+        let a11y: String = {
+            var parts = [state.title]
+            if let scope = state.scopeLabel { parts.append(scope) }
+            parts.append(state.subtitle)
+            return parts.joined(separator: ". ")
+        }()
         return HStack(spacing: 6) {
             Image(systemName: state.icon)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(Theme.primary)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 4) {
                     Text(state.title)
@@ -87,14 +94,19 @@ struct LiveSideGameStrip: View {
                     .lineLimit(1)
             }
             Image(systemName: "chevron.right")
-                .font(.system(size: 9, weight: .bold))
+                .font(.caption2.weight(.bold))
                 .foregroundStyle(Theme.textSecondary)
+                .accessibilityHidden(true)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
+        .frame(minHeight: 44)
         .background(Theme.cardBackground)
         .clipShape(RoundedRectangle(cornerRadius: 10))
         .overlay(RoundedRectangle(cornerRadius: 10).stroke(Theme.border, lineWidth: 1))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(a11y)
+        .accessibilityHint("Opens side game details.")
     }
 }
 

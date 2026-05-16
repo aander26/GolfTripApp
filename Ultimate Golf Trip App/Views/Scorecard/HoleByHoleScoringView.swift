@@ -358,7 +358,7 @@ struct PlayerScoreCard: View {
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                         Text("\(strokes)")
-                            .font(.system(size: 28, weight: .bold))
+                            .font(.title.weight(.bold))
                     }
                     if putts > 0 {
                         Divider().frame(height: 40)
@@ -367,7 +367,7 @@ struct PlayerScoreCard: View {
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                             Text("\(putts)")
-                                .font(.system(size: 28, weight: .bold))
+                                .font(.title.weight(.bold))
                         }
                     }
                     if let score = score, score.isCompleted {
@@ -377,7 +377,7 @@ struct PlayerScoreCard: View {
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                             Text("\(score.netStrokes)")
-                                .font(.system(size: 28, weight: .bold))
+                                .font(.title.weight(.bold))
                                 .foregroundStyle(score.netScoreColor)
                         }
                     }
@@ -535,8 +535,7 @@ struct RoundCompleteSheet: View {
                                 .frame(minWidth: 44, minHeight: 44)
                                     .overlay {
                                         Text(player.initials)
-                                            .font(.system(size: 10))
-                                            .fontWeight(.bold)
+                                            .font(.caption2.weight(.bold))
                                             .foregroundStyle(.white)
                                     }
 

@@ -4,14 +4,57 @@ struct RoundSetupView: View {
     @Bindable var viewModel: ScorecardViewModel
     @Environment(\.dismiss) private var dismiss
 
+    /// True when the trip is missing the bare minimum to play: no course, no players, or
+    /// the current user isn't in the trip. The Quick Setup button bridges this gap so
+    /// first-time users don't have to tab-switch back to Trip just to add a course.
+    private var needsQuickSetup: Bool {
+        guard let trip = viewModel.currentTrip else { return false }
+        return trip.courses.isEmpty || trip.players.isEmpty
+    }
+
+    /// True when the selected format requires teams but the trip has none yet.
+    /// Blocks the Start button so users don't end up in a broken match-play round.
+    private var teamFormatMissingTeams: Bool {
+        guard let trip = viewModel.currentTrip else { return false }
+        return viewModel.selectedFormat.requiresTeams && trip.teams.isEmpty
+    }
+
+    /// Aggregated guard for the Start button — must satisfy course, players, and (if team format) teams.
+    private var canStartRound: Bool {
+        viewModel.selectedCourseId != nil &&
+            !viewModel.selectedPlayerIds.isEmpty &&
+            !teamFormatMissingTeams
+    }
+
     var body: some View {
         NavigationStack {
             Form {
                 if let trip = viewModel.currentTrip {
+                    // Quick Setup — surfaces when the trip is missing a course or any player so
+                    // first-time users can start a round without bouncing back to the Trip tab.
+                    if needsQuickSetup {
+                        Section {
+                            Button {
+                                runQuickSetup(trip: trip)
+                            } label: {
+                                Label("Quick Setup", systemImage: "wand.and.stars")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(BoldPrimaryButtonStyle())
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                        } footer: {
+                            Text(quickSetupFooterText(trip: trip))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
                     // Course Selection
                     Section("Course") {
                         if trip.courses.isEmpty {
-                            Text("Add a course in the Trip tab first.")
+                            Text("No courses yet. Tap “Quick Setup” above to add a default 18-hole course, or add one in the Trip tab.")
+                                .font(.caption)
                                 .foregroundStyle(.secondary)
                         } else {
                             Picker("Select Course", selection: $viewModel.selectedCourseId) {
@@ -36,6 +79,24 @@ struct RoundSetupView: View {
                         Text(viewModel.selectedFormat.description)
                             .font(.caption)
                             .foregroundStyle(.secondary)
+
+                        // Block team-format rounds when no teams exist: silent failure mode used
+                        // to let users start match play with 0 teams, breaking the live banner
+                        // and downstream standings.
+                        if teamFormatMissingTeams {
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(Theme.warning)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("\(viewModel.selectedFormat.rawValue) needs teams")
+                                        .font(.caption.weight(.semibold))
+                                    Text("Add at least two teams in the Trip tab, or pick Stroke Play / Stableford to keep playing as individuals.")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
                     }
 
                     // Putts Tracking
@@ -123,7 +184,8 @@ struct RoundSetupView: View {
                     // Player Selection
                     Section("Players") {
                         if trip.players.isEmpty {
-                            Text("Add players in the Trip tab first.")
+                            Text("No players yet. Tap “Quick Setup” to add yourself, or add players in the Trip tab.")
+                                .font(.caption)
                                 .foregroundStyle(.secondary)
                         } else {
                             ForEach(trip.players) { player in
@@ -252,7 +314,7 @@ struct RoundSetupView: View {
                         viewModel.startNewRound()
                         dismiss()
                     }
-                    .disabled(viewModel.selectedCourseId == nil || viewModel.selectedPlayerIds.isEmpty)
+                    .disabled(!canStartRound)
                     .fontWeight(.semibold)
                 }
             }
@@ -263,6 +325,65 @@ struct RoundSetupView: View {
 // MARK: - Subviews
 
 extension RoundSetupView {
+
+    // MARK: - Quick setup
+
+    /// Add a default 18-hole course and the current user as a player so a first-time user can
+    /// start scoring immediately without bouncing back to the Trip tab. Idempotent — only
+    /// creates entities that don't already exist.
+    fileprivate func runQuickSetup(trip: Trip) {
+        let appState = viewModel.appState
+        var addedCourseId: UUID?
+        var addedPlayerId: UUID?
+
+        if trip.courses.isEmpty {
+            let course = Course(
+                name: "My Course",
+                holes: Course.defaultEighteenHoles()
+            )
+            course.trip = trip
+            trip.courses.append(course)
+            addedCourseId = course.id
+        }
+
+        if trip.players.isEmpty {
+            let profile = appState.currentUser
+            let player = Player(
+                name: profile?.name ?? "Me",
+                handicapIndex: profile?.handicapIndex ?? 0,
+                avatarColor: profile?.avatarColor ?? .blue,
+                userProfileId: profile?.id
+            )
+            player.trip = trip
+            trip.players.append(player)
+            addedPlayerId = player.id
+        }
+
+        appState.saveContext()
+
+        // Pre-select what we just created so Start is one tap away.
+        if let cid = addedCourseId ?? trip.courses.first?.id {
+            viewModel.selectedCourseId = cid
+        }
+        if let pid = addedPlayerId ?? trip.players.first?.id {
+            viewModel.selectedPlayerIds.insert(pid)
+        }
+    }
+
+    fileprivate func quickSetupFooterText(trip: Trip) -> String {
+        switch (trip.courses.isEmpty, trip.players.isEmpty) {
+        case (true, true):
+            return "Adds a default 18-hole course and yourself as a player. You can rename or edit either later from the Trip tab."
+        case (true, false):
+            return "Adds a default 18-hole course. Rename or edit later from the Trip tab."
+        case (false, true):
+            return "Adds you to the roster so you can start playing right away."
+        default:
+            return ""
+        }
+    }
+
+
     @ViewBuilder
     func matchPairingsSection(trip: Trip) -> some View {
         let selectedPlayers = trip.players.filter { viewModel.selectedPlayerIds.contains($0.id) }

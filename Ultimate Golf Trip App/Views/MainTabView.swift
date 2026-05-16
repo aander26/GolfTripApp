@@ -3,17 +3,13 @@ import SwiftData
 
 struct MainTabView: View {
     @Environment(AppState.self) private var appState
-    @State private var selectedTab: Int = {
-        #if DEBUG
-        let args = ProcessInfo.processInfo.arguments
-        if let idx = args.firstIndex(of: "-screenshotTab"),
-           idx + 1 < args.count,
-           let tab = Int(args[idx + 1]) {
-            return tab
-        }
-        #endif
-        return 0
-    }()
+    /// Persist the selected tab across app launches so users mid-round don't lose context when
+    /// the phone locks. SceneStorage is scoped to the scene (window), survives backgrounding,
+    /// and is wiped on app delete — exactly the lifecycle we want.
+    @SceneStorage("mainTabSelectedTab") private var selectedTab: Int = 0
+    /// Track whether selectedTab was already set this launch — used to apply DEBUG overrides
+    /// once without clobbering the persisted value on subsequent renders.
+    @State private var didApplyLaunchOverride = false
     @State private var viewModelsInitialized = false
     @State private var tripViewModel: TripViewModel?
     @State private var scorecardViewModel: ScorecardViewModel?
@@ -25,7 +21,10 @@ struct MainTabView: View {
         Group {
             if !viewModelsInitialized {
                 ProgressView()
-                    .onAppear { initializeViewModels() }
+                    .onAppear {
+                        initializeViewModels()
+                        applyLaunchOverridesIfNeeded()
+                    }
             } else if let tripVM = tripViewModel,
                       let warRoomVM = warRoomViewModel,
                       let leaderboardVM = leaderboardViewModel,
@@ -46,6 +45,21 @@ struct MainTabView: View {
                 ProgressView()
             }
         }
+    }
+
+    /// Apply launch-time overrides (DEBUG screenshot tab arg) exactly once per launch so
+    /// the persisted @SceneStorage value isn't clobbered on every render.
+    private func applyLaunchOverridesIfNeeded() {
+        guard !didApplyLaunchOverride else { return }
+        didApplyLaunchOverride = true
+        #if DEBUG
+        let args = ProcessInfo.processInfo.arguments
+        if let idx = args.firstIndex(of: "-screenshotTab"),
+           idx + 1 < args.count,
+           let tab = Int(args[idx + 1]) {
+            selectedTab = tab
+        }
+        #endif
     }
 
     @ViewBuilder

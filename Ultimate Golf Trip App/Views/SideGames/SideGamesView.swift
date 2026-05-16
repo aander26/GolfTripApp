@@ -21,6 +21,7 @@ struct SideGamesView: View {
                     } label: {
                         Image(systemName: "plus")
                     }
+                    .accessibilityLabel("Add challenge")
                 }
             }
             .sheet(isPresented: $challengesViewModel.showingCreateBet) {

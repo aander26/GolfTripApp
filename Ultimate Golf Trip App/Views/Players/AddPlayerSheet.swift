@@ -333,6 +333,29 @@ struct AddCourseSheet: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+
+                    // Surface course-search failures so users aren't confused by silently-empty results.
+                    if let error = searchService.searchError, !error.isEmpty {
+                        HStack(alignment: .top, spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.caption)
+                                .foregroundStyle(Theme.warning)
+                            Text(error)
+                                .font(.caption)
+                                .foregroundStyle(Theme.textSecondary)
+                        }
+                    }
+
+                    // Empty-result hint when the query returned nothing and we're not loading.
+                    if !searchService.isSearching,
+                       !searchService.searchText.isEmpty,
+                       searchService.searchError == nil,
+                       searchService.suggestions.isEmpty,
+                       searchService.databaseMatches.isEmpty {
+                        Text("No matches yet — keep typing, or enter course details manually below.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 // MapKit Suggestions

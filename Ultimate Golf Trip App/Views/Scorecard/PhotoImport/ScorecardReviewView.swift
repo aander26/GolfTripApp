@@ -226,13 +226,13 @@ struct ScorecardReviewView: View {
                     Circle()
                         .fill(player.avatarColor.color)
                         .frame(width: 28, height: 28)
-                        .overlay(Text(player.initials).font(.system(size: 11, weight: .bold)).foregroundStyle(.white))
+                        .overlay(Text(player.initials).font(.caption2.weight(.bold)).foregroundStyle(.white))
                     Text(player.name).font(.subheadline.weight(.semibold))
                 } else {
                     Circle()
                         .fill(Theme.border)
                         .frame(width: 28, height: 28)
-                        .overlay(Image(systemName: "person.fill").font(.system(size: 12)).foregroundStyle(Theme.textSecondary))
+                        .overlay(Image(systemName: "person.fill").font(.caption).foregroundStyle(Theme.textSecondary).accessibilityHidden(true))
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Assign player")
                             .font(.subheadline.weight(.semibold))
@@ -289,10 +289,10 @@ struct ScorecardReviewView: View {
         } label: {
             VStack(spacing: 1) {
                 Text("\(holeNumber)")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(.caption2.weight(.semibold))
                     .foregroundStyle(Theme.textSecondary)
                 Text(strokes.map(String.init) ?? "—")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.callout.weight(.bold))
                     .monospacedDigit()
                     .foregroundStyle(strokes == nil ? Theme.textSecondary : Theme.textPrimary)
             }
