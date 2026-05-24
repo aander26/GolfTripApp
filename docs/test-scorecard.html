@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Test Scorecard — for photo import QA</title>
+  <style>
+    /* High-contrast, monospaced scorecard designed for the app's
+       VNRecognizeTextRequest pipeline. The parser anchors on the
+       hole-number header row (1..9 then 10..18), then matches
+       numeric cells beneath each column by x-center proximity.
+       Keep column widths uniform and avoid extra alignment text. */
+    :root {
+      --ink: #0a0a0a;
+      --rule: #444;
+      --bg: #fafaf6;
+      --soft: #ebe6d8;
+      --accent: #1b4332;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: #5a6b50;
+      font-family: "Helvetica Neue", "Arial", sans-serif;
+      color: var(--ink);
+      -webkit-font-smoothing: antialiased;
+    }
+    .card {
+      width: 92vw;
+      max-width: 1200px;
+      margin: 24px auto;
+      background: var(--bg);
+      padding: 28px 32px 36px;
+      border-radius: 6px;
+      box-shadow: 0 10px 24px rgba(0,0,0,0.25);
+    }
+    .title {
+      text-align: center;
+      font-weight: 700;
+      letter-spacing: 1px;
+      font-size: 22px;
+      color: var(--accent);
+    }
+    .subtitle {
+      text-align: center;
+      font-size: 13px;
+      color: #555;
+      margin-top: 2px;
+      margin-bottom: 18px;
+      letter-spacing: 0.5px;
+    }
+    table.score {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      font-family: "Menlo", "Courier New", monospace;
+    }
+    table.score th,
+    table.score td {
+      border: 1px solid var(--rule);
+      text-align: center;
+      padding: 6px 0;
+      font-size: 18px;
+    }
+    /* First column = label column (wider, left-aligned) */
+    table.score th:first-child,
+    table.score td:first-child {
+      text-align: left;
+      padding-left: 10px;
+      width: 110px;
+      font-weight: 600;
+    }
+    /* OUT / IN / TOT column highlight so they stand out for OCR */
+    table.score th.total,
+    table.score td.total {
+      background: var(--soft);
+      font-weight: 700;
+    }
+    /* Hole number header row */
+    table.score thead th {
+      background: var(--accent);
+      color: #fff;
+      font-weight: 700;
+      font-size: 20px;
+      padding: 8px 0;
+    }
+    /* Par row */
+    tr.par td {
+      background: #f3efe1;
+      color: #333;
+      font-weight: 600;
+    }
+    /* Player rows — large numbers, hand-printed feel */
+    tr.player td {
+      font-size: 22px;
+      font-weight: 600;
+    }
+    .footer {
+      text-align: center;
+      margin-top: 14px;
+      font-size: 11px;
+      color: #666;
+      letter-spacing: 0.5px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="title">PINEHURST TEST COURSE</div>
+    <div class="subtitle">Sample Scorecard · for app photo-import QA</div>
+
+    <!-- Front 9 -->
+    <table class="score">
+      <thead>
+        <tr>
+          <th>HOLE</th>
+          <th>1</th><th>2</th><th>3</th><th>4</th><th>5</th>
+          <th>6</th><th>7</th><th>8</th><th>9</th>
+          <th class="total">OUT</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="par">
+          <td>PAR</td>
+          <td>4</td><td>4</td><td>3</td><td>4</td><td>5</td>
+          <td>4</td><td>3</td><td>4</td><td>4</td>
+          <td class="total">35</td>
+        </tr>
+        <tr class="player">
+          <td>ALEX</td>
+          <td>4</td><td>5</td><td>3</td><td>5</td><td>5</td>
+          <td>4</td><td>4</td><td>5</td><td>4</td>
+          <td class="total">39</td>
+        </tr>
+        <tr class="player">
+          <td>KEITH</td>
+          <td>5</td><td>4</td><td>4</td><td>4</td><td>6</td>
+          <td>5</td><td>3</td><td>5</td><td>5</td>
+          <td class="total">41</td>
+        </tr>
+        <tr class="player">
+          <td>SAM</td>
+          <td>4</td><td>5</td><td>3</td><td>6</td><td>5</td>
+          <td>5</td><td>4</td><td>4</td><td>4</td>
+          <td class="total">40</td>
+        </tr>
+        <tr class="player">
+          <td>BOB</td>
+          <td>5</td><td>4</td><td>4</td><td>5</td><td>5</td>
+          <td>4</td><td>4</td><td>5</td><td>5</td>
+          <td class="total">41</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- Back 9 -->
+    <table class="score" style="margin-top: 18px;">
+      <thead>
+        <tr>
+          <th>HOLE</th>
+          <th>10</th><th>11</th><th>12</th><th>13</th><th>14</th>
+          <th>15</th><th>16</th><th>17</th><th>18</th>
+          <th class="total">IN</th>
+          <th class="total">TOT</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="par">
+          <td>PAR</td>
+          <td>4</td><td>4</td><td>3</td><td>5</td><td>4</td>
+          <td>4</td><td>4</td><td>3</td><td>5</td>
+          <td class="total">36</td>
+          <td class="total">71</td>
+        </tr>
+        <tr class="player">
+          <td>ALEX</td>
+          <td>5</td><td>4</td><td>3</td><td>5</td><td>4</td>
+          <td>5</td><td>4</td><td>3</td><td>6</td>
+          <td class="total">39</td>
+          <td class="total">78</td>
+        </tr>
+        <tr class="player">
+          <td>KEITH</td>
+          <td>4</td><td>5</td><td>4</td><td>6</td><td>4</td>
+          <td>4</td><td>5</td><td>4</td><td>5</td>
+          <td class="total">41</td>
+          <td class="total">82</td>
+        </tr>
+        <tr class="player">
+          <td>SAM</td>
+          <td>5</td><td>5</td><td>4</td><td>5</td><td>5</td>
+          <td>5</td><td>4</td><td>3</td><td>5</td>
+          <td class="total">41</td>
+          <td class="total">81</td>
+        </tr>
+        <tr class="player">
+          <td>BOB</td>
+          <td>4</td><td>5</td><td>3</td><td>5</td><td>5</td>
+          <td>4</td><td>5</td><td>4</td><td>6</td>
+          <td class="total">41</td>
+          <td class="total">82</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="footer">
+      For QA — generated for the Ultimate Golf Trip App photo import pipeline
+    </div>
+  </div>
+</body>
+</html>
