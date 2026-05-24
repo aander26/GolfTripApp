@@ -86,30 +86,37 @@ struct ScorecardView: View {
                             }
                         }
                     } else {
-                        // In-progress round: show editing controls
+                        // In-progress round: editing controls in an explicit Menu. We used to
+                        // place the quick-entry and photo-import buttons as separate
+                        // .secondaryAction items and let SwiftUI auto-collapse them into an
+                        // overflow menu, but that behavior was unreliable (the "···" button
+                        // sometimes rendered without an expandable menu attached). Building the
+                        // Menu ourselves guarantees the expansion works.
                         ToolbarItem(placement: .secondaryAction) {
-                            Button {
-                                quickEntryMode.toggle()
-                            } label: {
-                                Image(systemName: quickEntryMode ? "bolt.fill" : "bolt")
-                                    .foregroundStyle(quickEntryMode ? Theme.primary : Theme.textSecondary)
-                            }
-                            .accessibilityLabel(quickEntryMode ? "Switch to standard entry" : "Switch to quick entry")
-                        }
-                        ToolbarItem(placement: .secondaryAction) {
-                            Button {
-                                if let round = viewModel.currentRound, let course = round.course {
-                                    photoImportVM = ScorecardImportViewModel(
-                                        scorecardVM: viewModel,
-                                        round: round,
-                                        course: course
+                            Menu {
+                                Button {
+                                    quickEntryMode.toggle()
+                                } label: {
+                                    Label(
+                                        quickEntryMode ? "Switch to standard entry" : "Switch to quick entry",
+                                        systemImage: quickEntryMode ? "bolt.fill" : "bolt"
                                     )
                                 }
+                                Button {
+                                    if let round = viewModel.currentRound, let course = round.course {
+                                        photoImportVM = ScorecardImportViewModel(
+                                            scorecardVM: viewModel,
+                                            round: round,
+                                            course: course
+                                        )
+                                    }
+                                } label: {
+                                    Label("Import scorecard from photo", systemImage: "doc.viewfinder")
+                                }
                             } label: {
-                                Image(systemName: "doc.viewfinder")
-                                    .foregroundStyle(Theme.textSecondary)
+                                Image(systemName: "ellipsis.circle")
                             }
-                            .accessibilityLabel("Import scorecard from photo")
+                            .accessibilityLabel("More actions")
                         }
                         if !quickEntryMode {
                             ToolbarItem(placement: .primaryAction) {
