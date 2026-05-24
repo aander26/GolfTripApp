@@ -312,7 +312,13 @@ struct CreateSideBetView: View {
             .background(viewModel.newBetType == type ? Theme.primary : Theme.primaryLight)
             .foregroundStyle(viewModel.newBetType == type ? .white : Theme.primary)
             .clipShape(Capsule())
+            // Scope hit-testing to the visible capsule so the chip can't be
+            // overridden by the parent Form row's gesture recognizer.
+            .contentShape(Capsule())
         }
+        // Without .plain, SwiftUI's default Button style in a Form context lets the
+        // row swallow taps and the chips become non-tappable.
+        .buttonStyle(.plain)
         .accessibilityLabel("\(type.displayName) challenge type")
         .accessibilityAddTraits(viewModel.newBetType == type ? .isSelected : [])
     }

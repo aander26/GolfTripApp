@@ -2,7 +2,11 @@ import SwiftUI
 
 struct SideGamesView: View {
     @Bindable var challengesViewModel: ChallengesViewModel
+    @Environment(AppState.self) private var appState
     @State private var showingSettlement = false
+    /// Lazily-built SideGameViewModel for the "Add side game" flow. Built on demand so the
+    /// Challenges tab doesn't carry the extra state when the user only creates SideBets.
+    @State private var sideGameVM: SideGameViewModel?
 
     var body: some View {
         NavigationStack {
@@ -16,16 +20,40 @@ struct SideGamesView: View {
             .navigationTitle("Challenges")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        challengesViewModel.showingCreateBet = true
+                    // Menu rather than a single + button: the Challenges tab actually creates
+                    // two distinct entity types — SideBet (round-based / trip-wide challenges
+                    // like "Most Birdies") and SideGame (on-course games like Skins, Snake,
+                    // Wolf). Both need a creation entry point.
+                    Menu {
+                        Button {
+                            challengesViewModel.showingCreateBet = true
+                        } label: {
+                            Label("New Challenge", systemImage: "trophy.circle")
+                        }
+                        Button {
+                            if sideGameVM == nil {
+                                sideGameVM = SideGameViewModel(appState: appState)
+                            }
+                            sideGameVM?.showingCreateGame = true
+                        } label: {
+                            Label("New Side Game", systemImage: "gamecontroller.fill")
+                        }
                     } label: {
                         Image(systemName: "plus")
                     }
-                    .accessibilityLabel("Add challenge")
+                    .accessibilityLabel("Add challenge or side game")
                 }
             }
             .sheet(isPresented: $challengesViewModel.showingCreateBet) {
                 CreateSideBetView(viewModel: challengesViewModel)
+            }
+            .sheet(isPresented: Binding(
+                get: { sideGameVM?.showingCreateGame ?? false },
+                set: { newValue in sideGameVM?.showingCreateGame = newValue }
+            )) {
+                if let vm = sideGameVM {
+                    CreateSideGameView(viewModel: vm)
+                }
             }
             .sheet(isPresented: $showingSettlement) {
                 NavigationStack {
